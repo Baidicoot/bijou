@@ -1,10 +1,14 @@
-{-# LANGUAGE ApplicativeDo #-}
+{-# LANGUAGE DeriveTraversable #-}
+{-# LANGUAGE TemplateHaskell #-}
+{-# LAnguage TypeFamilies #-}
 module Datatypes.Lam where
 
 import Datatypes.Prim
 
 import qualified Data.Text as T
 import qualified Data.Set as S
+import Data.Functor.Foldable
+import Data.Functor.Foldable.TH
 
 data Name = User T.Text Int | Gen Int
     deriving(Eq, Ord, Show)
@@ -12,33 +16,56 @@ data Name = User T.Text Int | Gen Int
 class Free a where
     fv :: a -> S.Set Name
 
-data LamExp
-    = Lam [Name] LamExp
-    | App LamExp LamExp
-    | Let Name LamExp LamExp
-    | LetRec [LamDef] LamExp
-    | Var Name
-    | Primop Primop
-    deriving(Eq, Show)
+data Def x = Def Name [Name] x deriving(Functor, Foldable, Traversable, Show)
 
-data LiftExp
-    = AppL LiftExp LiftExp
-    | LetL Name LiftExp LiftExp
-    | VarL Name
-    | PrimopL Primop
-    deriving(Eq, Show)
+data CoreExpr
+    = CoreLam [Name] CoreExpr
+    | CoreApp CoreExpr CoreExpr
+    | CoreLet Name CoreExpr CoreExpr
+    | CoreLetRec [Def CoreExpr] CoreExpr
+    | CoreVar Name
+    | CorePrimop Primop
+    deriving(Show)
 
-data PartialExp
-    = AppPartialP PartialExp PartialExp
-    | AppGlobalP Name [PartialExp]
-    | MkPartialP Name [PartialExp]
-    | UnpackP [Name] PartialExp PartialExp
-    | LetP Name PartialExp PartialExp
-    | VarP Name
-    | LabelP Name
-    | PrimopP Primop
-    deriving(Eq, Show)
+makeBaseFunctor ''CoreExpr
 
+instance Free CoreExpr where
+    fv = cata go
+        where
+            go (CoreLamF n e) = S.difference e (S.fromList n)
+            go (CoreAppF a b) = S.union a b
+            go (CoreLetF n a b) = S.union a (S.delete n b)
+            go (CoreLetRecF d e) =
+                let
+                    f = S.fromList (fmap (\(Def n _ _) -> n) d)
+                    v = e:fmap (\(Def _ n s) -> S.difference s (S.fromList n)) d
+                in S.difference (S.unions v) f
+            go (CoreVarF n) = S.singleton n
+            go _ = S.empty
+
+data LiftedExpr
+    = LiftedApp LiftedExpr LiftedExpr
+    | LiftedLet Name LiftedExpr LiftedExpr
+    | LiftedVar Name
+    | LiftedPrimop Primop
+    deriving(Show)
+
+makeBaseFunctor ''LiftedExpr
+
+data NoPartialsExpr
+    = NoPartialsAppPartial NoPartialsExpr NoPartialsExpr
+    | NoPartialsAppGlobal Name [NoPartialsExpr]
+    | NoPartialsMkPartial Name [NoPartialsExpr]
+    | NoPartialsUnpackPartial [Name] NoPartialsExpr NoPartialsExpr
+    | NoPartialsLet Name NoPartialsExpr NoPartialsExpr
+    | NoPartialsVar Name
+    | NoPartialsLabel Name
+    | NoPartialsPrimop Primop
+    deriving(Show)
+
+makeBaseFunctor ''NoPartialsExpr
+
+{-
 data ANFVal
     = VarA Name
     | LabelA Name
@@ -51,15 +78,4 @@ data ANFExp
     | AppGlobalA Name [ANFVal]
     | ReturnA ANFVal
     deriving(Eq, Show)
-
-instance Free LamExp where
-    fv (Lam n e) = foldr S.delete (fv e) n
-    fv (App a b) = S.union (fv a) (fv b)
-    fv (Let n a b) = S.union (fv a) (S.delete n (fv b))
-    fv (Var n) = S.singleton n
-    fv _ = S.empty
-
-data Def x = Def Name [Name] x deriving(Eq,Show)
-type LamDef = Def LamExp
-type DefL = Def LiftExp
-type DefP = Def PartialExp
+-}

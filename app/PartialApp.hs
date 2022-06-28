@@ -1,3 +1,5 @@
+{-# LANGUAGE OverloadedStrings #-}
+--module PartialApp (partials, partialsDef, mkGlobalMap) where
 module PartialApp where
 
 import Datatypes.Lam
@@ -9,10 +11,10 @@ import Control.Monad.Writer
 import Control.Monad.State
 
 type PartialState = (Int, M.Map (Name,Int) Name)
-type Partialer = StateT PartialState (Writer [DefP])
+type Partialer = StateT PartialState (Writer [Def NoPartialsExpr])
 
-collectArgs :: LiftExp -> (LiftExp,[LiftExp])
-collectArgs (AppL f x) = (\(f,xs) -> (f,x:xs)) (collectArgs f)
+collectArgs :: LiftedExpr -> (LiftedExpr,[LiftedExpr])
+collectArgs (LiftedApp f x) = (\(f,xs) -> (f,x:xs)) (collectArgs f)
 collectArgs x = (x,[])
 
 fresh :: Partialer Name
@@ -24,7 +26,6 @@ fresh = do
 registerPartial :: Name -> Int -> Name -> Partialer ()
 registerPartial n nargs p = modify (\(s,m) -> (s,M.insert (n,nargs) p m))
 
--- partials map uses no. args remaining
 genPartial :: Name -> Int -> Int -> Partialer Name
 genPartial n nrem nsup = do
     (_,m) <- get
@@ -38,32 +39,43 @@ genPartial n nrem nsup = do
                 registerPartial n nrem p
                 if nrem > 1 then do
                     p' <- genPartial n (nrem - 1) (nsup + 1)
-                    tell [Def p [k,extra] (UnpackP args (VarP k) (MkPartialP p' (fmap VarP (args ++ [extra]))))]
+                    tell [Def p [k,extra] (NoPartialsUnpackPartial args (NoPartialsVar k) (NoPartialsMkPartial p' (fmap NoPartialsVar (args ++ [extra]))))]
                     pure p
                 else do
-                    tell [Def p [k,extra] (UnpackP args (VarP k) (AppGlobalP n (fmap VarP (args ++ [extra]))))]
+                    tell [Def p [k,extra] (NoPartialsUnpackPartial args (NoPartialsVar k) (NoPartialsAppGlobal n (fmap NoPartialsVar (args ++ [extra]))))]
                     pure p
 
-makePartials :: M.Map Name Int -> LiftExp -> Partialer PartialExp
-makePartials g a@(AppL _ _) = do
+makePartials :: M.Map Name Int -> LiftedExpr -> Partialer NoPartialsExpr
+makePartials g a@(LiftedApp _ _) = do
     x' <- mapM (makePartials g) x
     case f of
-        VarL f -> case M.lookup f g of
-            Just n | n < length x -> do
+        LiftedVar f -> case M.lookup f g of
+            Just n | n > length x -> do
                 p <- genPartial f (n - length x) (length x)
-                pure (MkPartialP p (reverse x'))
-            Just n -> pure (AppGlobalP f (reverse x'))
-            Nothing -> pure (foldr (flip AppPartialP) (VarP f) x')
+                pure (NoPartialsMkPartial p (reverse x'))
+            Just n -> pure (NoPartialsAppGlobal f (reverse x'))
+            Nothing -> pure (foldr (flip NoPartialsAppPartial) (NoPartialsVar f) x')
         _ -> error "TYPEERROR"
     where
         (f,x) = collectArgs a
-makePartials g (LetL n x e) = liftM2 (LetP n) (makePartials g x) (makePartials g e)
-makePartials g (VarL n) = case M.lookup n g of
+makePartials g (LiftedLet n x e) = liftM2 (NoPartialsLet n) (makePartials g x) (makePartials g e)
+makePartials g (LiftedVar n) = case M.lookup n g of
     Just nreq -> do
         p <- genPartial n nreq 0
-        pure (MkPartialP p [])
-    Nothing -> pure (VarP n)
-makePartials g (PrimopL p) = pure (PrimopP p)
+        pure (NoPartialsAppGlobal p [])
+    Nothing -> pure (NoPartialsVar n)
+makePartials g (LiftedPrimop p) = pure (NoPartialsPrimop p)
 
-partials :: M.Map Name Int -> PartialState -> LiftExp -> ((PartialExp,PartialState),[DefP])
+
+makePartialsDef :: M.Map Name Int -> [Def LiftedExpr] -> Partialer ()
+makePartialsDef g = tell <=< mapM (\(Def f n e) -> fmap (Def f n) (makePartials g e))
+
+mkGlobalMap :: [Def LiftedExpr] -> M.Map Name Int
+mkGlobalMap (Def n args _:x) = M.insert n (length args) (mkGlobalMap x)
+mkGlobalMap [] = mempty
+
+partials :: M.Map Name Int -> PartialState -> LiftedExpr -> ((NoPartialsExpr,PartialState),[Def NoPartialsExpr])
 partials g s = runWriter . flip runStateT s . makePartials g
+
+partialsDef :: M.Map Name Int -> PartialState -> [Def LiftedExpr] -> (PartialState,[Def NoPartialsExpr])
+partialsDef g s = runWriter . flip execStateT s . makePartialsDef g
