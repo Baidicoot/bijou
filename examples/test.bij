@@ -1,0 +1,6 @@
+def testThingy x =
+    letrec
+        def addThing y = prim<add x y>
+    in ccall<printf "%i\n" (addThing 2)>
+
+def main x = testThingy 4

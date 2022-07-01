@@ -30,7 +30,9 @@ executable bijou
         Datatypes.Lam,
         ClosureConv,
         PartialApp,
-        Parser
+        Parser,
+        ANFify,
+        Backend
 
     -- LANGUAGE extensions used by modules in this package.
     -- other-extensions:

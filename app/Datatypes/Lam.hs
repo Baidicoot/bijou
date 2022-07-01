@@ -5,18 +5,25 @@ module Datatypes.Lam where
 
 import Datatypes.Prim
 
-import qualified Data.Text as T
 import qualified Data.Set as S
 import Data.Functor.Foldable
 import Data.Functor.Foldable.TH
 
-data Name = User T.Text Int | Gen Int
-    deriving(Eq, Ord, Show)
+data Name = User String Int | Gen Int
+    deriving(Eq, Ord)
+
+instance Show Name where
+    show (User n 0) = n
+    show (User n i) = n ++ ".." ++ show i
+    show (Gen i) = "v." ++ show i
 
 class Free a where
     fv :: a -> S.Set Name
 
-data Def x = Def Name [Name] x deriving(Functor, Foldable, Traversable, Show)
+data Def x = Def Name [Name] x deriving(Functor, Foldable, Traversable)
+
+instance Show x => Show (Def x) where
+    show (Def f a x) = "def " ++ show f ++ show a ++ "\n" ++ show x
 
 data CoreExpr
     = CoreLam [Name] CoreExpr
@@ -24,7 +31,9 @@ data CoreExpr
     | CoreLet Name CoreExpr CoreExpr
     | CoreLetRec [Def CoreExpr] CoreExpr
     | CoreVar Name
-    | CorePrimop Primop
+    | CoreLit Lit
+    | CorePrimop Primop [CoreExpr]
+    | CoreCCall String [CoreExpr]
     deriving(Show)
 
 makeBaseFunctor ''CoreExpr
@@ -41,13 +50,16 @@ instance Free CoreExpr where
                     v = e:fmap (\(Def _ n s) -> S.difference s (S.fromList n)) d
                 in S.difference (S.unions v) f
             go (CoreVarF n) = S.singleton n
-            go _ = S.empty
+            go (CorePrimopF p a) = S.unions a
+            go x = S.empty
 
 data LiftedExpr
     = LiftedApp LiftedExpr LiftedExpr
     | LiftedLet Name LiftedExpr LiftedExpr
     | LiftedVar Name
-    | LiftedPrimop Primop
+    | LiftedLit Lit
+    | LiftedPrimop Primop [LiftedExpr]
+    | LiftedCCall String [LiftedExpr]
     deriving(Show)
 
 makeBaseFunctor ''LiftedExpr
@@ -60,22 +72,43 @@ data NoPartialsExpr
     | NoPartialsLet Name NoPartialsExpr NoPartialsExpr
     | NoPartialsVar Name
     | NoPartialsLabel Name
-    | NoPartialsPrimop Primop
+    | NoPartialsLit Lit
+    | NoPartialsPrimop Primop [NoPartialsExpr]
+    | NoPartialsCCall String [NoPartialsExpr]
     deriving(Show)
 
 makeBaseFunctor ''NoPartialsExpr
 
-{-
 data ANFVal
-    = VarA Name
-    | LabelA Name
-    deriving(Eq, Show)
+    = ANFVar Name
+    | ANFLabel Name
+    | ANFLit Lit
 
-data ANFExp
-    = MkClosureA Name [ANFVal] ANFExp
-    | LetA Name ANFExp ANFExp
-    | AppPartialA Name ANFVal
-    | AppGlobalA Name [ANFVal]
-    | ReturnA ANFVal
-    deriving(Eq, Show)
--}
+instance Show ANFVal where
+    show (ANFVar n) = show n
+    show (ANFLabel n) = '#':show n
+    show (ANFLit l) = show l
+
+data ANFExpr
+    = ANFMkClosure Name Name [ANFVal] ANFExpr
+    | ANFLet Name ANFVal ANFExpr
+    | ANFUnpackPartial [Name] ANFVal ANFExpr
+    | ANFAppPartial Name ANFVal ANFVal ANFExpr
+    | ANFAppGlobal Name Name [ANFVal] ANFExpr
+    | ANFPrimop Name Primop [ANFVal] ANFExpr
+    | ANFCCall Name String [ANFVal] ANFExpr
+    | ANFReturn ANFVal
+
+makeBaseFunctor ''ANFExpr
+
+instance Show ANFExpr where
+    show = cata go
+        where
+            go (ANFMkClosureF r l v k) = show r ++ " <- " ++ show l ++ "@" ++ show v ++ "\n" ++ k
+            go (ANFLetF r v k) = show r ++ " <- " ++ show v ++ "\n" ++ k
+            go (ANFUnpackPartialF r v k) = show r ++ " <- " ++ show v ++ "\n" ++ k
+            go (ANFAppPartialF r f a k) = show r ++ " <- " ++ show f ++ "(" ++ show a ++ ")\n" ++ k
+            go (ANFAppGlobalF r f a k) = show r ++ " <- #" ++ show f ++ show a ++ "\n" ++ k
+            go (ANFReturnF v) = "return " ++ show v
+            go (ANFPrimopF r p a k) = show r ++ " <- " ++ show p ++ show a ++ "\n" ++ k
+            go (ANFCCallF r f a k) = show r ++ " <- ccall<" ++ f ++ show a ++ ">\n" ++ k

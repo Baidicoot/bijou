@@ -53,7 +53,9 @@ makePartials g a@(LiftedApp _ _) = do
             Just n | n > length x -> do
                 p <- genPartial f (n - length x) (length x)
                 pure (NoPartialsMkPartial p (reverse x'))
-            Just n -> pure (NoPartialsAppGlobal f (reverse x'))
+            Just n -> 
+                let globApp = NoPartialsAppGlobal f (take n (reverse x'))
+                in pure (foldr (flip NoPartialsAppPartial) globApp (take (length x - n) x'))
             Nothing -> pure (foldr (flip NoPartialsAppPartial) (NoPartialsVar f) x')
         _ -> error "TYPEERROR"
     where
@@ -62,10 +64,11 @@ makePartials g (LiftedLet n x e) = liftM2 (NoPartialsLet n) (makePartials g x) (
 makePartials g (LiftedVar n) = case M.lookup n g of
     Just nreq -> do
         p <- genPartial n nreq 0
-        pure (NoPartialsAppGlobal p [])
+        pure (NoPartialsMkPartial p [])
     Nothing -> pure (NoPartialsVar n)
-makePartials g (LiftedPrimop p) = pure (NoPartialsPrimop p)
-
+makePartials g (LiftedPrimop p x) = fmap (NoPartialsPrimop p) (mapM (makePartials g) x)
+makePartials g (LiftedLit l) = pure (NoPartialsLit l)
+makePartials g (LiftedCCall f x) = fmap (NoPartialsCCall f) (mapM (makePartials g) x)
 
 makePartialsDef :: M.Map Name Int -> [Def LiftedExpr] -> Partialer ()
 makePartialsDef g = tell <=< mapM (\(Def f n e) -> fmap (Def f n) (makePartials g e))
