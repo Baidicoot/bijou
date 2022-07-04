@@ -1,6 +1,7 @@
 module ANFify where
 
 import Datatypes.Lam
+import Datatypes.Name
 import Data.Functor.Foldable
 
 import Control.Monad.State
@@ -64,4 +65,4 @@ anfify :: ANFifyState -> NoPartialsExpr -> (ANFExpr,ANFifyState)
 anfify s = flip runState s . toANF
 
 anfifyDefs :: ANFifyState -> [Def NoPartialsExpr] -> ([Def ANFExpr],ANFifyState)
-anfifyDefs s = flip runState s . mapM (\(Def n a e) -> fmap (Def n a) (toANF e))
+anfifyDefs s = flip runState s . mapM (\(Def n a t e) -> fmap (Def n a t) (toANF e))

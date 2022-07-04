@@ -32,7 +32,10 @@ executable bijou
         PartialApp,
         Parser,
         ANFify,
-        Backend
+        Backend,
+        Typecheck,
+        Datatypes.Name,
+        Rename
 
     -- LANGUAGE extensions used by modules in this package.
     -- other-extensions:

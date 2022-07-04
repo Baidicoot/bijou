@@ -1,6 +1,16 @@
-def testThingy x =
-    letrec
-        def addThing y = prim<add x y>
-    in ccall<printf "%i\n" (addThing 2)>
+dec add :: Int -> Int -> Int
+def add x y = prim<add x y>
 
-def main x = testThingy 4
+dec putInt :: Int -> Int
+def putInt i = ccall<printf "%i\n" i>
+
+def doubleClosure x =
+    let tmp = add x
+    in tmp x
+
+def doublePartial x =
+    letrec def tmp y = add x y
+    in tmp x
+
+export main
+def main x = putInt (doubleClosure 5)

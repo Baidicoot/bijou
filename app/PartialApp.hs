@@ -3,6 +3,7 @@
 module PartialApp where
 
 import Datatypes.Lam
+import Datatypes.Name
 
 import qualified Data.Map as M
 import qualified Data.Set as S
@@ -39,10 +40,10 @@ genPartial n nrem nsup = do
                 registerPartial n nrem p
                 if nrem > 1 then do
                     p' <- genPartial n (nrem - 1) (nsup + 1)
-                    tell [Def p [k,extra] (NoPartialsUnpackPartial args (NoPartialsVar k) (NoPartialsMkPartial p' (fmap NoPartialsVar (args ++ [extra]))))]
+                    tell [Def p [k,extra] Nothing (NoPartialsUnpackPartial args (NoPartialsVar k) (NoPartialsMkPartial p' (fmap NoPartialsVar (args ++ [extra]))))]
                     pure p
                 else do
-                    tell [Def p [k,extra] (NoPartialsUnpackPartial args (NoPartialsVar k) (NoPartialsAppGlobal n (fmap NoPartialsVar (args ++ [extra]))))]
+                    tell [Def p [k,extra] Nothing (NoPartialsUnpackPartial args (NoPartialsVar k) (NoPartialsAppGlobal n (fmap NoPartialsVar (args ++ [extra]))))]
                     pure p
 
 makePartials :: M.Map Name Int -> LiftedExpr -> Partialer NoPartialsExpr
@@ -71,10 +72,10 @@ makePartials g (LiftedLit l) = pure (NoPartialsLit l)
 makePartials g (LiftedCCall f x) = fmap (NoPartialsCCall f) (mapM (makePartials g) x)
 
 makePartialsDef :: M.Map Name Int -> [Def LiftedExpr] -> Partialer ()
-makePartialsDef g = tell <=< mapM (\(Def f n e) -> fmap (Def f n) (makePartials g e))
+makePartialsDef g = tell <=< mapM (\(Def f n t e) -> fmap (Def f n Nothing) (makePartials g e))
 
 mkGlobalMap :: [Def LiftedExpr] -> M.Map Name Int
-mkGlobalMap (Def n args _:x) = M.insert n (length args) (mkGlobalMap x)
+mkGlobalMap (Def n args _ _:x) = M.insert n (length args) (mkGlobalMap x)
 mkGlobalMap [] = mempty
 
 partials :: M.Map Name Int -> PartialState -> LiftedExpr -> ((NoPartialsExpr,PartialState),[Def NoPartialsExpr])

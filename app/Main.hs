@@ -10,21 +10,27 @@ import PartialApp
 import Parser
 import ANFify
 import Backend
+import Typecheck
+import Rename
 
 import System.Environment
 
 buildFile :: String -> String -> IO ()
 buildFile root file = do
     str <- readFile (root ++ file)
-    case parseLamDefs (root ++ file) str of
+    case parseTLDefs (root ++ file) str of
         Left e -> error (show e)
         Right cd ->
             let
-                (s,ld) = cconvDefs 0 cd
+                rd = renameTL cd
+                (s,ld) = cconvDefs mempty 0 rd
                 ((s',_),pd) = partialsDef (mkGlobalMap ld) (s,mempty) ld
-                (ad,_) = anfifyDefs s' pd
+                (ad,s'') = anfifyDefs s' pd
                 c = cgen ad
-            in writeFile (root ++ file ++ ".c") c
+            in do
+                writeFile (root ++ file ++ ".c") c
+                print rd
+                print (runInferDefs (s'',mempty) mempty rd)
 
 main :: IO ()
 main = do

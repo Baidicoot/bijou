@@ -2,6 +2,7 @@ module Backend (cgen) where
 
 import Datatypes.Lam
 import Datatypes.Prim
+import Datatypes.Name
 import Control.Monad.Writer
 import Control.Monad.State
 import Data.List (intercalate)
@@ -80,7 +81,7 @@ defHeader :: Name -> [Name] -> String
 defHeader f a = "Ptr " ++ toCIdent f ++ "(Ptr " ++ intercalate ",Ptr " (fmap toCIdent a) ++ ")"
 
 anfDefToC :: Def ANFExpr -> CWriter ()
-anfDefToC (Def f a e) = do
+anfDefToC (Def f a _ e) = do
     writeLn $ defHeader f a ++ " {"
     indent 4
     anfToC e
@@ -88,7 +89,7 @@ anfDefToC (Def f a e) = do
     writeLn "}"
 
 genForwardDecl :: Def ANFExpr -> CWriter ()
-genForwardDecl (Def f a _) = writeLn $ defHeader f a ++ ";"
+genForwardDecl (Def f a _ _) = writeLn $ defHeader f a ++ ";"
 
 genC :: [Def ANFExpr] -> CWriter ()
 genC d = do

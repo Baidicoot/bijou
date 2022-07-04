@@ -4,26 +4,83 @@
 module Datatypes.Lam where
 
 import Datatypes.Prim
+import Datatypes.Name
 
-import qualified Data.Set as S
 import Data.Functor.Foldable
 import Data.Functor.Foldable.TH
 
-data Name = User String Int | Gen Int
-    deriving(Eq, Ord)
+import qualified Data.Set as S
+import qualified Data.Map as M
+import Data.Char (isSpace)
 
-instance Show Name where
-    show (User n 0) = n
-    show (User n i) = n ++ ".." ++ show i
-    show (Gen i) = "v." ++ show i
+type Substitution = M.Map Name Type
 
-class Free a where
-    fv :: a -> S.Set Name
+data Type
+    = Arr
+    | Star
+    | App Type Type
+    | Const Name
+    | TyVar Name
+    | Rigid Name
+    | PrimTy PrimTy
+    deriving(Eq)
 
-data Def x = Def Name [Name] x deriving(Functor, Foldable, Traversable)
+instance Show Type where
+    show Star = "*"
+    show (App (App Arr a) b) = parens (show a) ++ " -> " ++ show b
+        where
+            parens s | any isSpace s = "(" ++ s ++ ")"
+            parens s = s
+    show Arr = "(->)"
+    show (App a b) = show a ++ " " ++ parens (show b)
+        where
+            parens s | any isSpace s = "(" ++ s ++ ")"
+            parens s = s
+    show (Const n) = show n
+    show (TyVar n) = show n
+    show (Rigid n) = "#" ++ show n
+    show (PrimTy p) = show p
+
+arr :: Type -> Type -> Type
+arr = App . App Arr
+
+makeBaseFunctor ''Type
+
+instance Free Type where
+    fv = cata go
+        where
+            go (TyVarF n) = S.singleton n
+            go (AppF a b) = S.union a b
+            go x = S.empty
+
+class Subst a where
+    subst :: Substitution -> a -> a
+
+instance Subst Type where
+    subst g = cata go
+        where
+            go (TyVarF n) = M.findWithDefault (TyVar n) n g
+            go x = embed x
+
+data TypeError
+    = UnificationFail Type Type
+    | RecursiveType Name Type
+    | UnknownVar Name
+    deriving(Show)
+
+data Polytype = Forall (S.Set Name) Type deriving(Eq)
+
+instance Show Polytype where
+    show (Forall s t) = "forall " ++ unwords (fmap show (S.toList s)) ++ ", " ++ show t
+
+rigidify :: Polytype -> Type
+rigidify (Forall n t) = subst (M.fromSet Rigid n) t
+
+data Def x = Def Name [Name] (Maybe Polytype) x deriving(Functor, Foldable, Traversable)
 
 instance Show x => Show (Def x) where
-    show (Def f a x) = "def " ++ show f ++ show a ++ "\n" ++ show x
+    show (Def f a (Just t) x) = "dec " ++ show f ++ " :: " ++ show t ++ "\n" ++ show (Def f a Nothing x)
+    show (Def f a _ x) = "def " ++ show f ++ show a ++ "\n" ++ show x
 
 data CoreExpr
     = CoreLam [Name] CoreExpr
@@ -46,8 +103,8 @@ instance Free CoreExpr where
             go (CoreLetF n a b) = S.union a (S.delete n b)
             go (CoreLetRecF d e) =
                 let
-                    f = S.fromList (fmap (\(Def n _ _) -> n) d)
-                    v = e:fmap (\(Def _ n s) -> S.difference s (S.fromList n)) d
+                    f = S.fromList (fmap (\(Def n _ _ _) -> n) d)
+                    v = e:fmap (\(Def _ n _ s) -> S.difference s (S.fromList n)) d
                 in S.difference (S.unions v) f
             go (CoreVarF n) = S.singleton n
             go (CorePrimopF p a) = S.unions a

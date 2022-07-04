@@ -1,6 +1,7 @@
 module ClosureConv where
 
 import Datatypes.Lam
+import Datatypes.Name
 import Control.Monad.State
 import Control.Monad.Writer
 
@@ -29,26 +30,25 @@ addArgs f = cata go
             Nothing -> CoreVar n
         go x = embed x
 
-closureConv :: CoreExpr -> CoreExpr
-closureConv (CoreLam n e) =
-    let free = S.toList (S.difference (fv e) (S.fromList n))
-    in foldr (flip CoreApp . CoreVar) (CoreLam (free ++ n) (closureConv e)) free
--- todo: do this part
-closureConv (CoreLetRec d e) =
+closureConv :: S.Set Name -> CoreExpr -> CoreExpr
+closureConv g (CoreLam n e) =
+    let free = S.toList (S.difference (fv e) (S.union g (S.fromList n)))
+    in foldr (flip CoreApp . CoreVar) (CoreLam (free ++ n) (closureConv g e)) free
+closureConv g (CoreLetRec d e) =
     let
-        fns = S.fromList (fmap (\(Def f _ _) -> f) d)
-        sets = M.fromList (fmap (\(Def f n e) -> (,) f
+        fns = S.fromList (fmap (\(Def f _ _ _) -> f) d)
+        sets = M.fromList (fmap (\(Def f n _ e) -> (,) f
             ( S.intersection fns (fv e)
-            , S.difference (fv e) (S.union (S.fromList n) fns))) d)
+            , S.difference (fv e) (S.unions [S.fromList n, fns, g]))) d)
         df = fmap S.toList (transitiveClosure sets)
-    in CoreLetRec (fmap (\(Def f n e) ->
-        Def f (M.findWithDefault [] f df ++ n) (closureConv (addArgs df e))) d)
-        (closureConv (addArgs df e))
-closureConv (CoreApp a b) = CoreApp (closureConv a) (closureConv b)
-closureConv (CoreLet n x e) = CoreLet n (closureConv x) (closureConv e)
-closureConv (CorePrimop p x) = CorePrimop p (fmap closureConv x)
-closureConv (CoreCCall f x) = CoreCCall f (fmap closureConv x)
-closureConv x = x
+    in CoreLetRec (fmap (\(Def f n t e) ->
+        Def f (M.findWithDefault [] f df ++ n) t (closureConv g (addArgs df e))) d)
+        (closureConv g (addArgs df e))
+closureConv g (CoreApp a b) = CoreApp (closureConv g a) (closureConv g b)
+closureConv g (CoreLet n x e) = CoreLet n (closureConv g x) (closureConv g e)
+closureConv g (CorePrimop p x) = CorePrimop p (fmap (closureConv g) x)
+closureConv g (CoreCCall f x) = CoreCCall f (fmap (closureConv g) x)
+closureConv _ x = x
 
 type Lifter = StateT CCState (Writer [Def LiftedExpr])
 
@@ -64,10 +64,10 @@ liftLams = cata go
         go :: CoreExprF (Lifter LiftedExpr) -> Lifter LiftedExpr
         go (CoreLamF n e) = do
             f <- fresh
-            e >>= tell . (:[]) . Def f n
+            e >>= tell . (:[]) . Def f n Nothing
             pure (LiftedVar f)
         go (CoreLetRecF d e) = do
-            forM_ d $ \(Def f n e) -> e >>= tell . (:[]) . Def f n
+            forM_ d $ \(Def f n t e) -> e >>= tell . (:[]) . Def f n t
             e
         go (CoreAppF a b) = liftM2 LiftedApp a b
         go (CoreLetF n a b) = liftM2 (LiftedLet n) a b
@@ -77,10 +77,12 @@ liftLams = cata go
         go (CoreCCallF f x) = fmap (LiftedCCall f) (sequence x)
 
 liftDefs :: [Def CoreExpr] -> Lifter ()
-liftDefs = tell <=< mapM (\(Def f n e) -> fmap (Def f n) (liftLams e))
+liftDefs = tell <=< mapM (\(Def f n t e) -> fmap (Def f n t) (liftLams e))
 
-cconv :: CCState -> CoreExpr -> ((LiftedExpr,CCState),[Def LiftedExpr])
-cconv s = runWriter . flip runStateT s . liftLams . closureConv
+cconv :: S.Set Name -> CCState -> CoreExpr -> ((LiftedExpr,CCState),[Def LiftedExpr])
+cconv g s = runWriter . flip runStateT s . liftLams . closureConv g
 
-cconvDefs :: CCState -> [Def CoreExpr] -> (CCState,[Def LiftedExpr])
-cconvDefs s = runWriter . flip execStateT s . liftDefs . fmap (\(Def f n e) -> Def f n (closureConv e))
+cconvDefs :: S.Set Name -> CCState -> [Def CoreExpr] -> (CCState,[Def LiftedExpr])
+cconvDefs g s d = runWriter . flip execStateT s . liftDefs . fmap (\(Def f n t e) -> Def f n t (closureConv g' e)) $ d
+    where
+        g' = S.union g (S.fromList (fmap (\(Def f _ _ _) -> f) d))
