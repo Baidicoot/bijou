@@ -58,6 +58,9 @@ fresh = do
     put (x+1)
     pure (Gen x)
 
+compilePatterns :: [(Pattern,LiftedExpr)] -> Lifter [(FlatPattern,LiftedExpr)]
+compilePatterns = undefined
+
 liftLams :: CoreExpr -> Lifter LiftedExpr
 liftLams = cata go
     where
@@ -75,6 +78,7 @@ liftLams = cata go
         go (CorePrimopF p x) = fmap (LiftedPrimop p) (sequence x)
         go (CoreLitF l) = pure (LiftedLit l)
         go (CoreCCallF f x) = fmap (LiftedCCall f) (sequence x)
+        go (CoreMatchF x ps) = liftM2 LiftedMatch x . compilePatterns =<< mapM (uncurry (fmap . (,))) ps
 
 liftDefs :: [Def CoreExpr] -> Lifter ()
 liftDefs = tell <=< mapM (\(Def f n t e) -> fmap (Def f n t) (liftLams e))

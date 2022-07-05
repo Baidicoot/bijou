@@ -197,21 +197,21 @@ funcDefs = do
     (decs,defs) <- fmap partitionEithers (many (fmap Left funcDec <|> fmap Right funcDef))
     pure (foldr (uncurry addHint) defs decs)
 
-exportDec :: Parser Name
+exportDec :: Parser String
 exportDec = do
     reserved "export"
-    name
+    identifier
 
-tlDefs :: Parser [(Def CoreExpr,Bool)]
+tlDefs :: Parser ([Def CoreExpr], S.Set String)
 tlDefs = do
     (exports,(decs,defs)) <- fmap (second partitionEithers . partitionEithers)
         (many (fmap Left exportDec <|> fmap (Right . Left) funcDec <|> fmap (Right . Right) funcDef))
-    pure (fmap (exported (S.fromList exports)) (foldr (uncurry addHint) defs decs))
+    pure (foldr (uncurry addHint) defs decs, S.fromList exports)
 
 parseLamDefs :: String -> String -> Either ParseError [Def CoreExpr]
 parseLamDefs = parse funcDefs
 
-parseTLDefs :: String -> String -> Either ParseError [(Def CoreExpr,Bool)]
+parseTLDefs :: String -> String -> Either ParseError ([Def CoreExpr], S.Set String)
 parseTLDefs = parse tlDefs
 
 parseLamExpr :: String -> String -> Either ParseError CoreExpr

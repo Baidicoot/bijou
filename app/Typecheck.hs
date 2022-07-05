@@ -1,4 +1,4 @@
-module Typecheck (runInferDefs,runInfer) where
+module Typecheck (runInferRec,runInfer) where
 
 import Datatypes.Lam
 import Datatypes.Name
@@ -8,6 +8,8 @@ import Control.Monad.Reader
 import Control.Monad.State
 import Control.Monad.Except
 import Data.Functor.Foldable
+import qualified Data.Foldable as F
+import Data.Bifunctor
 
 import qualified Data.Set as S
 import qualified Data.Map as M
@@ -33,10 +35,17 @@ instantiate (Forall n t) = do
     m <- sequence (M.fromSet (fmap TyVar . const newvar) n)
     find (subst m t)
 
+env :: Infer (M.Map Name Polytype)
+env = do
+    g <- ask
+    s <- gets snd
+    pure (fmap (subst s) g)
+
 generalize :: Type -> Infer Polytype
 generalize t = do
     t' <- find t
-    pure (Forall (fv t') t')
+    ev <- fmap (F.fold . fmap fv) env
+    pure (Forall (S.difference (fv t') ev) t')
 
 occurs :: Name -> Type -> Bool
 occurs n t = n `S.member` fv t
@@ -46,11 +55,11 @@ bind n t = do
     (i,s) <- get
     put (i,M.insert n t (fmap (subst (M.singleton n t)) s))
 
-withTypes :: Infer a -> [(Name,Polytype)] -> Infer a
-withTypes = foldr (uncurry withType)
-    where
-        withType :: Name -> Polytype -> Infer a -> Infer a
-        withType n = local . M.insert n
+withType :: Name -> Polytype -> Infer a -> Infer a
+withType n = local . M.insert n
+
+withTypes :: [(Name,Polytype)] -> Infer a -> Infer a
+withTypes = flip (foldr (uncurry withType))
 
 unify :: Type -> Type -> Infer ()
 unify a b = do
@@ -69,50 +78,65 @@ inferLit :: Lit -> Type
 inferLit (IntLit _) = PrimTy IntTy
 inferLit (StrLit _) = PrimTy StrTy
 
--- fix for annotated defs
-inferDefs :: [Def CoreExpr] -> Infer [(Name,Polytype)]
-inferDefs d = do
-    a' <- mapM (\(Def _ a _ _) -> mapM (fmap TyVar . const newvar) a) d
+-- fix!!!
+inferLetRec :: [(Name,Maybe Polytype,TypedExpr)] -> Infer [(Name,Polytype)]
+inferLetRec d = do
     r <- mapM (fmap TyVar . const newvar) d
-    let ft = zip (fmap (\(Def f _ _ _) -> f) d) (zipWith (foldr arr) r a')
-    flip withTypes (fmap (\(a,b) -> (a,Forall S.empty b)) ft) $
-        zipWithM_ (\(Def _ a p e) (a',r) -> do
-            rt <- withTypes (infer e) (zip a (fmap (Forall S.empty) a'))
-            unify r rt) d (zip a' r)
-    zipWithM (\(Def _ _ p _) (n,t) -> case p of
-        Just p -> unify (rigidify p) t >> pure (n,p)
+    let ft = zip (fmap (\(f,_,_)->f) d) r
+    withTypes (fmap (second (Forall S.empty)) ft) $
+        zipWithM_ (\(_,p,e) r -> do
+            t <- infer e
+            unify r t
+            case p of
+                Just p -> unify (rigidify p) t
+                Nothing -> pure ()) d r
+    zipWithM (\(_,p,_) (n,t) -> case p of
+        Just p -> pure (n,p)
         Nothing -> fmap ((,) n) (generalize t)) d ft
 
-infer :: CoreExpr -> Infer Type
-infer (CoreLam a e) = do
-    a' <- mapM (fmap TyVar . const newvar) a
-    t <- infer e `withTypes` zip a (fmap (Forall S.empty) a')
-    find (foldr arr t a')
-infer (CoreLetRec d e) = withTypes (infer e) =<< inferDefs d
-infer (CoreApp a b) = do
+uncurryType :: Type -> ([Type],Type)
+uncurryType (App (App Arr a) b) = first (a:) (uncurryType b)
+uncurryType x = ([],x)
+
+bindPattern :: Pattern -> Type -> Infer a -> Infer a
+bindPattern (PatternVar n) t f = withType n (Forall S.empty t) f
+bindPattern (PatternApp c s) t f = do
+    ct <- asks (M.lookup c)
+    case ct of
+        Just p -> do
+            (at,rt) <- fmap uncurryType (instantiate p)
+            foldr (uncurry bindPattern) f (zip s at)
+        Nothing -> throwError (UnknownVar c)
+bindPattern (PatternLit l) t f = f
+
+infer :: TypedExpr -> Infer Type
+infer (TypedLam a e) = do
+    at <- fmap TyVar newvar
+    rt <- withType a (Forall S.empty at) (infer e)
+    find (arr at rt)
+infer (TypedLetRec d e) = flip withTypes (infer e) =<< inferLetRec d
+infer (TypedApp a b) = do
     bt <- infer b
     rt <- fmap TyVar newvar
     at <- infer a
     unify at (bt `arr` rt)
     find rt
-infer (CoreLet n x e) = do
-    xt <- generalize =<< infer x
-    withTypes (infer e) [(n,xt)]
-infer (CoreVar n) = do
+infer (TypedVar n) = do
     g <- ask
     case M.lookup n g of
         Just p -> instantiate p
         Nothing -> throwError (UnknownVar n)
-infer (CoreLit l) = pure (inferLit l)
-infer (CorePrimop p a) = do
+infer (TypedLit l) = pure (inferLit l)
+infer (TypedPrimop p a) = do
     mapM_ infer a
     fmap TyVar newvar
-infer (CoreCCall f a) = do
+infer (TypedCCall f a) = do
     mapM_ infer a
     fmap TyVar newvar
+infer (TypedMatch x ps) = undefined
 
-runInferDefs :: InferState -> InferEnv -> [Def CoreExpr] -> Either TypeError ([(Name,Polytype)],InferState)
-runInferDefs s e = runExcept . flip runReaderT e . flip runStateT s . inferDefs
+runInferRec :: InferState -> InferEnv -> [(Name,Maybe Polytype,TypedExpr)] -> Either TypeError ([(Name,Polytype)],InferState)
+runInferRec s e = runExcept . flip runReaderT e . flip runStateT s . inferLetRec
 
-runInfer :: InferState -> InferEnv -> CoreExpr -> Either TypeError (Type,InferState)
+runInfer :: InferState -> InferEnv -> TypedExpr -> Either TypeError (Type,InferState)
 runInfer s e = runExcept . flip runReaderT e . flip runStateT s . infer

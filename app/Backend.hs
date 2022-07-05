@@ -1,4 +1,4 @@
-module Backend (cgen) where
+module Backend (cgen,hgen) where
 
 import Datatypes.Lam
 import Datatypes.Prim
@@ -6,6 +6,8 @@ import Datatypes.Name
 import Control.Monad.Writer
 import Control.Monad.State
 import Data.List (intercalate)
+
+import qualified Data.Set as S
 
 toCIdent :: Name -> String
 toCIdent = sanitize . show
@@ -99,5 +101,17 @@ genC d = do
     mapM_ genForwardDecl d
     mapM_ anfDefToC d
 
+genH :: [Def ANFExpr] -> CWriter ()
+genH d = do
+    writeLn "#include <stdlib.h>"
+    writeLn "#include <stdint.h>"
+    writeLn "typedef void* Ptr;"
+    mapM_ (\d@(Def f _ _ _) -> case f of
+        Exact _ -> genForwardDecl d
+        _ -> pure ()) d
+
 cgen :: [Def ANFExpr] -> String
 cgen = flip evalState 0 . execWriterT . genC
+
+hgen :: [Def ANFExpr] -> String
+hgen = flip evalState 0 . execWriterT . genH

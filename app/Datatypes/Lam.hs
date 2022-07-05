@@ -73,6 +73,12 @@ data Polytype = Forall (S.Set Name) Type deriving(Eq)
 instance Show Polytype where
     show (Forall s t) = "forall " ++ unwords (fmap show (S.toList s)) ++ ", " ++ show t
 
+instance Subst Polytype where
+    subst g (Forall s t) = Forall s (subst (foldr M.delete g s) t)
+
+instance Free Polytype where
+    fv (Forall s t) = S.difference (fv t) s
+
 rigidify :: Polytype -> Type
 rigidify (Forall n t) = subst (M.fromSet Rigid n) t
 
@@ -81,6 +87,19 @@ data Def x = Def Name [Name] (Maybe Polytype) x deriving(Functor, Foldable, Trav
 instance Show x => Show (Def x) where
     show (Def f a (Just t) x) = "dec " ++ show f ++ " :: " ++ show t ++ "\n" ++ show (Def f a Nothing x)
     show (Def f a _ x) = "def " ++ show f ++ show a ++ "\n" ++ show x
+
+data Pattern
+    = PatternVar Name
+    | PatternApp Name [Pattern]
+    | PatternLit Lit
+    deriving(Eq,Show)
+
+makeBaseFunctor ''Pattern
+
+data FlatPattern
+    = FlatPatternApp Name [Name]
+    | FlatPatternLit Lit
+    deriving(Eq,Show)
 
 data CoreExpr
     = CoreLam [Name] CoreExpr
@@ -91,6 +110,7 @@ data CoreExpr
     | CoreLit Lit
     | CorePrimop Primop [CoreExpr]
     | CoreCCall String [CoreExpr]
+    | CoreMatch CoreExpr [(Pattern,CoreExpr)]
     deriving(Show)
 
 makeBaseFunctor ''CoreExpr
@@ -110,6 +130,44 @@ instance Free CoreExpr where
             go (CorePrimopF p a) = S.unions a
             go x = S.empty
 
+data TypedExpr
+    = TypedLam Name TypedExpr
+    | TypedLetRec [(Name,Maybe Polytype,TypedExpr)] TypedExpr
+    | TypedApp TypedExpr TypedExpr
+    | TypedLit Lit
+    | TypedVar Name
+    | TypedPrimop Primop [TypedExpr]
+    | TypedCCall String [TypedExpr]
+    | TypedMatch TypedExpr [(Pattern,TypedExpr)]
+    deriving(Show)
+
+makeBaseFunctor ''TypedExpr
+
+instance Free TypedExpr where
+    fv = cata go
+        where
+            go (TypedLamF n e) = S.delete n e
+            go (TypedLetRecF n e) = S.unions (S.difference e (S.fromList (fmap (\(x,_,_)->x) n))
+                :fmap (\(_,_,x)->x) n)
+            go (TypedVarF n) = S.singleton n
+            go x = S.unions x
+
+desugar :: CoreExpr -> TypedExpr
+desugar = cata go
+    where
+        go (CoreLamF n e) = foldr TypedLam e n
+        go (CoreLetRecF d e) = TypedLetRec (fmap (\(Def f a t e) -> (f,t,foldr TypedLam e a)) d) e
+        go (CoreAppF a b) = TypedApp a b
+        go (CorePrimopF p e) = TypedPrimop p e
+        go (CoreCCallF f e) = TypedCCall f e
+        go (CoreVarF n) = TypedVar n
+        go (CoreLitF l) = TypedLit l
+        go (CoreLetF n x e) = TypedLetRec [(n,Nothing,x)] e
+        go (CoreMatchF v x) = TypedMatch v x
+
+desugarDef :: Def CoreExpr -> (Name,Maybe Polytype,TypedExpr)
+desugarDef (Def f a t e) = (f,t,foldr TypedLam (desugar e) a)
+
 data LiftedExpr
     = LiftedApp LiftedExpr LiftedExpr
     | LiftedLet Name LiftedExpr LiftedExpr
@@ -117,6 +175,7 @@ data LiftedExpr
     | LiftedLit Lit
     | LiftedPrimop Primop [LiftedExpr]
     | LiftedCCall String [LiftedExpr]
+    | LiftedMatch LiftedExpr [(FlatPattern,LiftedExpr)]
     deriving(Show)
 
 makeBaseFunctor ''LiftedExpr
@@ -132,6 +191,7 @@ data NoPartialsExpr
     | NoPartialsLit Lit
     | NoPartialsPrimop Primop [NoPartialsExpr]
     | NoPartialsCCall String [NoPartialsExpr]
+    | NoPartialsMatch NoPartialsExpr [(FlatPattern,NoPartialsExpr)]
     deriving(Show)
 
 makeBaseFunctor ''NoPartialsExpr
@@ -154,18 +214,8 @@ data ANFExpr
     | ANFAppGlobal Name Name [ANFVal] ANFExpr
     | ANFPrimop Name Primop [ANFVal] ANFExpr
     | ANFCCall Name String [ANFVal] ANFExpr
+    | ANFMatch ANFVal [(FlatPattern,ANFExpr)]
     | ANFReturn ANFVal
+    deriving(Show)
 
 makeBaseFunctor ''ANFExpr
-
-instance Show ANFExpr where
-    show = cata go
-        where
-            go (ANFMkClosureF r l v k) = show r ++ " <- " ++ show l ++ "@" ++ show v ++ "\n" ++ k
-            go (ANFLetF r v k) = show r ++ " <- " ++ show v ++ "\n" ++ k
-            go (ANFUnpackPartialF r v k) = show r ++ " <- " ++ show v ++ "\n" ++ k
-            go (ANFAppPartialF r f a k) = show r ++ " <- " ++ show f ++ "(" ++ show a ++ ")\n" ++ k
-            go (ANFAppGlobalF r f a k) = show r ++ " <- #" ++ show f ++ show a ++ "\n" ++ k
-            go (ANFReturnF v) = "return " ++ show v
-            go (ANFPrimopF r p a k) = show r ++ " <- " ++ show p ++ show a ++ "\n" ++ k
-            go (ANFCCallF r f a k) = show r ++ " <- ccall<" ++ f ++ show a ++ ">\n" ++ k

@@ -20,17 +20,20 @@ buildFile root file = do
     str <- readFile (root ++ file)
     case parseTLDefs (root ++ file) str of
         Left e -> error (show e)
-        Right cd ->
+        Right (cd,exp) ->
             let
-                rd = renameTL cd
+                rd = renameTL exp cd
                 (s,ld) = cconvDefs mempty 0 rd
                 ((s',_),pd) = partialsDef (mkGlobalMap ld) (s,mempty) ld
                 (ad,s'') = anfifyDefs s' pd
                 c = cgen ad
-            in do
-                writeFile (root ++ file ++ ".c") c
-                print rd
-                print (runInferDefs (s'',mempty) mempty rd)
+                h = hgen ad
+            in case runInferRec (s'',mempty) mempty (fmap desugarDef rd) of
+                Right (t,_) -> do
+                    mapM_ (\(n,p) -> putStrLn $ show n ++ " :: " ++ show p) t
+                    writeFile (root ++ file ++ ".c") c
+                    writeFile (root ++ file ++ ".h") h
+                Left e -> print e
 
 main :: IO ()
 main = do

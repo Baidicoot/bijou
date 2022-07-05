@@ -4,14 +4,15 @@ import Datatypes.Lam
 import Datatypes.Name
 
 import Data.Functor.Foldable
-
+import Data.Bifunctor
 import Control.Monad.State
 import Control.Monad.Reader
 
 import qualified Data.Map as M
+import qualified Data.Set as S
 
 type RenameState = M.Map String Int
-type Renamer = StateT RenameState (Reader RenameState)
+type Renamer = StateT RenameState (Reader (RenameState, S.Set String))
 
 fresh :: String -> Renamer Int
 fresh s = do
@@ -23,15 +24,17 @@ fresh s = do
 withNew :: Renamer a -> Renamer a
 withNew r = do
     g <- get
-    local (const g) r
+    local (first (const g)) r
 
-renameDefs :: [(Def CoreExpr, Bool)] -> Renamer [Def CoreExpr]
+renameDefs :: [Def CoreExpr] -> Renamer [Def CoreExpr]
 renameDefs d = do
-    f <- mapM (\(Def f _ _ _,b) -> case f of
-                User s _ | not b -> fmap (User s) (fresh s)
-                _ -> pure f) d
+    (_,exp) <- ask
+    f <- mapM (\(Def f _ _ _) -> case f of
+        User s _ | s `S.member` exp -> pure (Exact s)
+        User s _ -> fmap (User s) (fresh s)
+        _ -> pure f) d
     withNew $
-        mapM (\(n, (Def _ a t x,_)) -> do
+        mapM (\(n, Def _ a t x) -> do
             a <- mapM (\n -> case n of
                 User s _ -> fmap (User s) (fresh s)
                 _ -> pure n) a
@@ -45,7 +48,9 @@ renameVars = cata go
             i <- fresh s
             liftM2 (CoreLet (User s i)) x (withNew e)
         go (CoreLetRecF d e) = do
+            (_,exp) <- ask
             f <- mapM (\(Def n _ _ _) -> case n of
+                User s _ | s `S.member` exp -> pure (Exact s)
                 User s _ -> fmap (User s) (fresh s)
                 _ -> pure n) d
             withNew $ do
@@ -61,14 +66,15 @@ renameVars = cata go
                 _ -> pure n) a
             fmap (CoreLam a) (withNew e)
         go (CoreVarF n@(User s _)) = do
-            g <- ask
+            (g,exp) <- ask
             case M.lookup s g of
+                _ | s `S.member` exp -> pure (CoreVar (Exact s))
                 Just i -> pure (CoreVar (User s i))
                 Nothing -> pure (CoreVar n)
         go x = fmap embed (sequence x)
 
-renameExpr :: CoreExpr -> CoreExpr
-renameExpr = flip runReader mempty . flip evalStateT mempty . renameVars
+renameExpr :: S.Set String -> CoreExpr -> CoreExpr
+renameExpr s = flip runReader (mempty,s) . flip evalStateT mempty . renameVars
 
-renameTL :: [(Def CoreExpr,Bool)] -> [Def CoreExpr]
-renameTL = flip runReader mempty . flip evalStateT mempty . renameDefs
+renameTL :: S.Set String -> [Def CoreExpr] -> [Def CoreExpr]
+renameTL s = flip runReader (mempty,s) . flip evalStateT mempty . renameDefs
