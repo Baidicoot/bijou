@@ -1,0 +1,5 @@
+export main
+dec main :: Int -> Int
+def main x = match x with
+    case 0 -> x
+    case y -> y

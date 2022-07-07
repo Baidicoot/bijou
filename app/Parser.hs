@@ -12,6 +12,8 @@ import Text.Parsec.Language (haskellDef)
 import Control.Monad
 import Control.Monad.Identity
 
+import Data.Char (isUpper)
+
 import Data.Bifunctor
 
 import qualified Data.Set as S
@@ -23,7 +25,7 @@ type Op = Operator String () Identity
 bijou :: Token.LanguageDef a
 bijou = haskellDef
     { Token.reservedNames = Token.reservedNames haskellDef ++
-        ["ccall","prim","def","letrec","dec"]
+        ["ccall","prim","def","letrec","dec","match","with"]
     , Token.reservedOpNames = Token.reservedOpNames haskellDef ++
         [","]
     }
@@ -45,6 +47,15 @@ identifier = Token.identifier lexer
 
 reserved :: String -> Parser ()
 reserved = Token.reserved lexer
+
+lexeme :: Parser a -> Parser a
+lexeme = Token.lexeme lexer
+
+constructor :: Parser Name
+constructor = fmap (flip User 0) . lexeme . try $ do
+    c <- satisfy isUpper <?> "upper-case"
+    s <- many (Token.identLetter bijou)
+    pure (c:s)
 
 name :: Parser Name
 name = fmap (flip User 0) identifier
@@ -83,8 +94,29 @@ primop = do
         x <- many exprTerm
         pure (CorePrimop op x)
 
-lit :: Parser CoreExpr
-lit = fmap (CoreLit . IntLit) intLit <|> fmap (CoreLit . StrLit) strLit
+parsePattern :: Parser Pattern
+parsePattern =
+    try (liftM2 PatternApp constructor (many parsePattern))
+    <|> fmap PatternVar name
+    <|> fmap PatternLit lit
+
+match :: Parser CoreExpr
+match = do
+    reserved "match"
+    x <- expr
+    reserved "with"
+    cs <- many $ do
+        reserved "case"
+        p <- parsePattern
+        reservedOp "->"
+        fmap ((,) p) expr
+    pure (CoreMatch x cs)
+
+lit :: Parser Lit
+lit = fmap IntLit intLit <|> fmap StrLit strLit
+
+litExpr :: Parser CoreExpr
+litExpr = fmap CoreLit lit
 
 lambda :: Parser CoreExpr
 lambda = parens $ do
@@ -113,7 +145,8 @@ exprTerm :: Parser CoreExpr
 exprTerm =
     try lambda
     <|> parens expr
-    <|> lit
+    <|> match
+    <|> litExpr
     <|> variable
     <|> letrec
     <|> letval

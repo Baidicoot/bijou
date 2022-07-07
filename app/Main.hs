@@ -30,6 +30,7 @@ buildFile root file = do
                 h = hgen ad
             in case runInferRec (s'',mempty) mempty (fmap desugarDef rd) of
                 Right (t,_) -> do
+                    print cd
                     mapM_ (\(n,p) -> putStrLn $ show n ++ " :: " ++ show p) t
                     writeFile (root ++ file ++ ".c") c
                     writeFile (root ++ file ++ ".h") h

@@ -133,7 +133,13 @@ infer (TypedPrimop p a) = do
 infer (TypedCCall f a) = do
     mapM_ infer a
     fmap TyVar newvar
-infer (TypedMatch x ps) = undefined
+infer (TypedMatch x ps) = do
+    t <- infer x
+    r <- fmap TyVar newvar
+    mapM_ (\(p,e) -> do
+        rt <- bindPattern p t (infer e)
+        unify r rt) ps
+    find r
 
 runInferRec :: InferState -> InferEnv -> [(Name,Maybe Polytype,TypedExpr)] -> Either TypeError ([(Name,Polytype)],InferState)
 runInferRec s e = runExcept . flip runReaderT e . flip runStateT s . inferLetRec

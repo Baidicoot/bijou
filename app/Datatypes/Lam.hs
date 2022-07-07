@@ -175,7 +175,8 @@ data LiftedExpr
     | LiftedLit Lit
     | LiftedPrimop Primop [LiftedExpr]
     | LiftedCCall String [LiftedExpr]
-    | LiftedMatch LiftedExpr [(FlatPattern,LiftedExpr)]
+    | LiftedThrow String
+    | LiftedMatch LiftedExpr [(FlatPattern,LiftedExpr)] LiftedExpr
     deriving(Show)
 
 makeBaseFunctor ''LiftedExpr
@@ -191,7 +192,8 @@ data NoPartialsExpr
     | NoPartialsLit Lit
     | NoPartialsPrimop Primop [NoPartialsExpr]
     | NoPartialsCCall String [NoPartialsExpr]
-    | NoPartialsMatch NoPartialsExpr [(FlatPattern,NoPartialsExpr)]
+    | NoPartialsThrow String
+    | NoPartialsMatch NoPartialsExpr [(FlatPattern,NoPartialsExpr)] NoPartialsExpr
     deriving(Show)
 
 makeBaseFunctor ''NoPartialsExpr
@@ -200,11 +202,13 @@ data ANFVal
     = ANFVar Name
     | ANFLabel Name
     | ANFLit Lit
+    | ANFThrow String
 
 instance Show ANFVal where
     show (ANFVar n) = show n
     show (ANFLabel n) = '#':show n
     show (ANFLit l) = show l
+    show (ANFThrow e) = "throw '" ++ e ++ "'"
 
 data ANFExpr
     = ANFMkClosure Name Name [ANFVal] ANFExpr
@@ -214,7 +218,7 @@ data ANFExpr
     | ANFAppGlobal Name Name [ANFVal] ANFExpr
     | ANFPrimop Name Primop [ANFVal] ANFExpr
     | ANFCCall Name String [ANFVal] ANFExpr
-    | ANFMatch ANFVal [(FlatPattern,ANFExpr)]
+    | ANFMatch ANFVal [(FlatPattern,ANFExpr)] ANFExpr
     | ANFReturn ANFVal
     deriving(Show)
 

@@ -23,6 +23,7 @@ anfValToC :: ANFVal -> String
 anfValToC (ANFVar n) = toCIdent n
 anfValToC (ANFLabel n) = toCIdent n
 anfValToC (ANFLit l) = show l
+anfValToC (ANFThrow s) = "printf(\"%s\"," ++ show s ++ ")"
 
 type CWriter = WriterT String (State Int)
 
@@ -77,6 +78,7 @@ anfToC (ANFCCall r f a k) = do
     toCIdent r `assign` (f ++ "(" ++ intercalate "," (fmap anfValToC a) ++ ")")
     anfToC k
 anfToC (ANFReturn v) = writeLn $ "return " ++ anfValToC v ++ ";"
+anfToC (ANFMatch v _ k) = undefined
 anfToC _ = error "undefined"
 
 defHeader :: Name -> [Name] -> String

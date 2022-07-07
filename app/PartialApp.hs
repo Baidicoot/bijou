@@ -70,7 +70,12 @@ makePartials g (LiftedVar n) = case M.lookup n g of
 makePartials g (LiftedPrimop p x) = fmap (NoPartialsPrimop p) (mapM (makePartials g) x)
 makePartials g (LiftedLit l) = pure (NoPartialsLit l)
 makePartials g (LiftedCCall f x) = fmap (NoPartialsCCall f) (mapM (makePartials g) x)
-makePartials g (LiftedMatch x ps) = liftM2 NoPartialsMatch (makePartials g x) (mapM (uncurry (\a -> fmap ((,) a) . makePartials g)) ps)
+makePartials g (LiftedMatch x ps d) = do
+    x <- makePartials g x
+    ps <- mapM (uncurry (\a -> fmap ((,) a) . makePartials g)) ps
+    d <- makePartials g d
+    pure (NoPartialsMatch x ps d)
+makePartials g (LiftedThrow e) = pure (NoPartialsThrow e)
 
 makePartialsDef :: M.Map Name Int -> [Def LiftedExpr] -> Partialer ()
 makePartialsDef g = tell <=< mapM (\(Def f n t e) -> fmap (Def f n Nothing) (makePartials g e))

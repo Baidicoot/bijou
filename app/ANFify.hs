@@ -63,8 +63,12 @@ toANF = fmap (\f -> f ANFReturn) . cata go
                 pure (\h -> af (\av -> xf (\xv -> h (xv++[av]))))) (\h -> h []) x
             r <- fresh
             pure (\h -> xf (\xs -> ANFCCall r f xs (h (ANFVar r))))
-        go (NoPartialsMatchF x p) =
-            undefined
+        go (NoPartialsMatchF x p d) = do
+            xf <- x
+            df <- d
+            pf <- mapM (uncurry (fmap . (,))) p
+            pure (\h -> xf (\xv -> ANFMatch xv (fmap (\(a,b) -> (a,b h)) pf) (df h)))
+        go (NoPartialsThrowF e) = pure (\h -> h (ANFThrow e))
 
 anfify :: ANFifyState -> NoPartialsExpr -> (ANFExpr,ANFifyState)
 anfify s = flip runState s . toANF
