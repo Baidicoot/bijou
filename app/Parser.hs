@@ -25,7 +25,7 @@ type Op = Operator String () Identity
 bijou :: Token.LanguageDef a
 bijou = haskellDef
     { Token.reservedNames = Token.reservedNames haskellDef ++
-        ["ccall","prim","def","letrec","dec","match","with"]
+        ["ccall","prim","def","letrec","dec","match","with","entry"]
     , Token.reservedOpNames = Token.reservedOpNames haskellDef ++
         [","]
     }
@@ -235,17 +235,33 @@ exportDec = do
     reserved "export"
     identifier
 
-tlDefs :: Parser ([Def CoreExpr], S.Set String)
-tlDefs = do
-    (exports,(decs,defs)) <- fmap (second partitionEithers . partitionEithers)
-        (many (fmap Left exportDec <|> fmap (Right . Left) funcDec <|> fmap (Right . Right) funcDef))
-    pure (foldr (uncurry addHint) defs decs, S.fromList exports)
+data TLDecl
+    = TLDef (Def CoreExpr)
+    | TLDec (Name,Polytype)
+    | TLExp String
+    | TLEnt String
+
+tlDefs :: Parser [TLDecl]
+tlDefs = many $
+    fmap TLExp (reserved "export" >> identifier)
+    <|> fmap TLDec funcDec
+    <|> fmap TLDef funcDef
+    <|> fmap TLEnt (reserved "entry" >> identifier)
+
+toDefs :: [TLDecl] -> Parser (Maybe String,S.Set String,[Def CoreExpr])
+toDefs d = do
+    (def,dec,exp,ent) <- foldM (\x y -> case (x,y) of
+            ((def,dec,exp,ent),TLExp n) -> pure (def,dec,S.insert n exp,ent)
+            ((def,dec,exp,ent),TLDec d) -> pure (def,d:dec,exp,ent)
+            ((def,dec,exp,ent),TLDef d) -> pure (d:def,dec,exp,ent)
+            ((def,dec,exp,ent),TLEnt e) -> pure (def,dec,S.insert e exp,Just e)) ([],[],S.empty,Nothing) d
+    pure (ent,exp,foldr (uncurry addHint) def dec)
 
 parseLamDefs :: String -> String -> Either ParseError [Def CoreExpr]
 parseLamDefs = parse funcDefs
 
-parseTLDefs :: String -> String -> Either ParseError ([Def CoreExpr], S.Set String)
-parseTLDefs = parse tlDefs
+parseTLDefs :: String -> String -> Either ParseError (Maybe String,S.Set String,[Def CoreExpr])
+parseTLDefs = parse (toDefs =<< tlDefs)
 
 parseLamExpr :: String -> String -> Either ParseError CoreExpr
 parseLamExpr = parse expr

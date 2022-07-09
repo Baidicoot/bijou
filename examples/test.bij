@@ -12,5 +12,5 @@ def doublePartial x =
     letrec def tmp y = add x y
     in tmp x
 
-export main
-def main x = putInt (doubleClosure 5)
+entry start
+def start x = putInt (doubleClosure 5)

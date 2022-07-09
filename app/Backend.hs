@@ -95,12 +95,19 @@ anfDefToC (Def f a _ e) = do
 genForwardDecl :: Def ANFExpr -> CWriter ()
 genForwardDecl (Def f a _ _) = writeLn $ defHeader f a ++ ";"
 
-genC :: [Def ANFExpr] -> CWriter ()
-genC d = do
+genC :: Maybe String -> [Def ANFExpr] -> CWriter ()
+genC st d = do
     writeLn "#include <stdlib.h>"
     writeLn "#include <stdint.h>"
     writeLn "typedef void* Ptr;"
     mapM_ genForwardDecl d
+    case st of
+        Just st -> do
+            writeLn "void main(int main_arg) {"
+            indent 4
+            writeLn (toCIdent (Exact st) ++ "(main_arg);")
+            indent 0
+            writeLn "}"
     mapM_ anfDefToC d
 
 genH :: [Def ANFExpr] -> CWriter ()
@@ -112,8 +119,8 @@ genH d = do
         Exact _ -> genForwardDecl d
         _ -> pure ()) d
 
-cgen :: [Def ANFExpr] -> String
-cgen = flip evalState 0 . execWriterT . genC
+cgen :: Maybe String -> [Def ANFExpr] -> String
+cgen st = flip evalState 0 . execWriterT . genC st
 
 hgen :: [Def ANFExpr] -> String
 hgen = flip evalState 0 . execWriterT . genH
