@@ -4,9 +4,14 @@ data Primop
     = Add
     | Sub
     | Div
-    | Mult
-    | PrintF
+    | Mul
     deriving(Show,Eq)
+
+boolop :: Primop -> Bool
+boolop Add = True
+boolop Sub = True
+boolop Div = True
+boolop Mul = True
 
 data Lit
     = IntLit Int

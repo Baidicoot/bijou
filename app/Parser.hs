@@ -1,6 +1,6 @@
-module Parser (parseLamExpr, parseLamDefs, parseMonotype, parseTLDefs) where
+module Parser (parseTL) where
 
-import Datatypes.Lam
+import Datatypes.AST
 import Datatypes.Prim
 import Datatypes.Name
 
@@ -22,12 +22,13 @@ import Data.Either (partitionEithers)
 type Parser = Parsec String ()
 type Op = Operator String () Identity
 
+-- TODO: make idents not thingy ->
 bijou :: Token.LanguageDef a
 bijou = haskellDef
     { Token.reservedNames = Token.reservedNames haskellDef ++
-        ["ccall","prim","def","letrec","dec","match","with","entry"]
+        ["ccall","prim","def","letrec","dec","match","with","entry","gadt","struct"]
     , Token.reservedOpNames = Token.reservedOpNames haskellDef ++
-        [","]
+        [",","(->)","->"]
     }
 
 reservedOpNames :: [String]
@@ -51,20 +52,14 @@ reserved = Token.reserved lexer
 lexeme :: Parser a -> Parser a
 lexeme = Token.lexeme lexer
 
-constructor :: Parser Name
-constructor = fmap (flip User 0) . lexeme . try $ do
-    c <- satisfy isUpper <?> "upper-case"
-    s <- many (Token.identLetter bijou)
-    pure (c:s)
+name :: Parser Ident
+name = fmap Unqualified identifier
 
-name :: Parser Name
-name = fmap (flip User 0) identifier
-
-variable :: Parser CoreExpr
-variable = fmap CoreVar name
+variable :: Parser ASTExpr
+variable = fmap ASTVar name
 
 intLit :: Parser Int
-intLit = fmap fromIntegral (Token.integer lexer)
+intLit = fmap fromIntegral (try (Token.integer lexer))
 
 strLit :: Parser String
 strLit = Token.stringLiteral lexer
@@ -79,69 +74,86 @@ reservedOp :: String -> Parser ()
 reservedOp = Token.reservedOp lexer
 
 toPrimop :: String -> Parser Primop
-toPrimop "add" = pure Add
-toPrimop "printf" = pure PrintF
-toPrimop s = fail ("unknown primop '" ++ s ++ "'")
+toPrimop = go primops
+    where
+        go ((t,p):ps) s | s == t = pure p
+        go (_:ps) s = go ps s
+        go [] s = fail ("unknown primop " ++ s)
 
-ccall :: Parser CoreExpr
-ccall = reserved "ccall" >> angles (liftM2 CoreCCall identifier (many exprTerm))
+primops :: [(String,Primop)]
+primops =
+    [("add",Add)
+    ,("sub",Sub)
+    ,("mul",Mul)
+    ,("div",Div)
+    ]
 
-primop :: Parser CoreExpr
+ccall :: Parser ASTExpr
+ccall = reserved "ccall" >> angles (liftM2 ASTCCall identifier (many exprTerm))
+
+primop :: Parser ASTExpr
 primop = do
     reserved "prim"
     angles $ do
         op <- toPrimop =<< identifier
         x <- many exprTerm
-        pure (CorePrimop op x)
+        pure (ASTPrimop op x)
 
-parsePattern :: Parser Pattern
-parsePattern =
-    try (liftM2 PatternApp constructor (many parsePattern))
-    <|> fmap PatternVar name
-    <|> fmap PatternLit lit
+patternExpr :: Parser ASTPattern
+patternExpr =
+    try (liftM2 ASTPatApp name (many patternTerm))
+    <|> patternTerm
 
-match :: Parser CoreExpr
+patternTerm :: Parser ASTPattern
+patternTerm =
+    parens patternExpr
+    <|> fmap (flip ASTPatApp []) name
+    <|> fmap ASTPatLit lit
+
+match :: Parser ASTExpr
 match = do
     reserved "match"
     x <- expr
     reserved "with"
     cs <- many $ do
         reserved "case"
-        p <- parsePattern
-        reservedOp "->"
+        p <- patternExpr
+        reservedOp "of"
         fmap ((,) p) expr
-    pure (CoreMatch x cs)
+    pure (ASTMatch x cs)
 
 lit :: Parser Lit
 lit = fmap IntLit intLit <|> fmap StrLit strLit
 
-litExpr :: Parser CoreExpr
-litExpr = fmap CoreLit lit
+litExpr :: Parser ASTExpr
+litExpr = fmap ASTLit lit
 
-lambda :: Parser CoreExpr
+lambda :: Parser ASTExpr
 lambda = parens $ do
     reserved "\\"
     ns <- many1 name
     reserved "->"
-    fmap (CoreLam ns) expr
+    fmap (ASTLam ns) expr
 
-letrec :: Parser CoreExpr
+letrec :: Parser ASTExpr
 letrec = do
     reserved "letrec"
-    d <- many1 funcDef
+    d <- funcDefs
     reserved "in"
-    fmap (CoreLetRec d) expr
+    fmap (ASTLetRec d) expr
 
-letval :: Parser CoreExpr
+letval :: Parser ASTExpr
 letval = do
     reserved "let"
-    n <- name
-    reservedOp "="
-    d <- expr
+    ds <- many1 $ do
+        reserved "def"
+        n <- name
+        reservedOp "="
+        fmap ((,) n) expr
     reserved "in"
-    fmap (CoreLet n d) expr
+    fmap (ASTLet ds) expr
 
-exprTerm :: Parser CoreExpr
+exprTerm :: Parser ASTExpr
 exprTerm =
     try lambda
     <|> parens expr
@@ -158,113 +170,114 @@ binary o f a = flip Infix a $ do
     reservedOp o
     pure f
 
-appExpr :: Op CoreExpr
+appExpr :: Op ASTExpr
 appExpr = Infix space AssocLeft
     where
         space
             = whiteSpace
             >> notFollowedBy (choice (fmap reservedOp reservedOpNames))
-            >> pure CoreApp
+            >> pure ASTApp
 
-expr :: Parser CoreExpr
+expr :: Parser ASTExpr
 expr = buildExpressionParser [[appExpr]] exprTerm
 
-arrFn :: Parser Type
+arrFn :: Parser ASTType
 arrFn = do
     reserved "(->)"
-    pure Arr
+    pure ASTArr
 
 litType :: Parser PrimTy
 litType =
     fmap (const IntTy) (reserved "Int")
     <|> fmap (const StrTy) (reserved "Str")
 
-monotypeTerm :: Parser Type
+monotypeTerm :: Parser ASTType
 monotypeTerm =
     try arrFn
     <|> parens monotype
-    <|> fmap PrimTy litType
-    <|> fmap TyVar name
+    <|> fmap ASTPrimTy litType
+    <|> fmap ASTTyVar name
 
-appType :: Op Type
+appType :: Op ASTType
 appType = Infix space AssocLeft
     where
         space
             = whiteSpace
             >> notFollowedBy (choice (fmap reservedOp reservedOpNames))
-            >> pure App
+            >> pure ASTTyApp
 
-monotype :: Parser Type
-monotype = buildExpressionParser [[appType],[binary "->" arr AssocRight]] monotypeTerm
+monotype :: Parser ASTType
+monotype = buildExpressionParser [[appType],[binary "->" astArr AssocRight]] monotypeTerm
 
-polytype :: Parser Polytype
-polytype = do
-    t <- monotype
-    pure (Forall (fv t) t)
-
-funcDec :: Parser (Name,Polytype)
+funcDec :: Parser (Ident,ASTType)
 funcDec = do
     reserved "dec"
     f <- name
     reservedOp "::"
-    fmap ((,) f) polytype
+    fmap ((,) f) monotype
 
-funcDef :: Parser (Def CoreExpr)
+funcDef :: Parser (Ident,[Ident],ASTExpr)
 funcDef = do
     reserved "def"
     f <- name
     a <- many1 name
     reserved "="
-    fmap (Def f a Nothing) expr
+    fmap (\e->(f,a,e)) expr
 
-addHint :: Name -> Polytype -> [Def CoreExpr] -> [Def CoreExpr]
-addHint n p (Def f a Nothing e:xs) | f == n = Def f a (Just p) e:xs
-addHint n p (x:xs) = x:addHint n p xs
-addHint _ _ [] = []
+gadtData :: Parser ASTData
+gadtData = do
+    reserved "gadt"
+    f <- name
+    reserved "="
+    c <- many $ do
+        reserved "|"
+        c <- name
+        reserved "::"
+        fmap ((,) c) monotype
+    pure (ASTGADT f c)
 
-exported :: S.Set Name -> Def a -> (Def a,Bool)
-exported n d@(Def f _ _ _) = (d,f `S.member` n)
+adtData :: Parser ASTData
+adtData = do
+    reserved "data"
+    f <- name
+    a <- many name
+    reserved "="
+    c <- many $ do
+        reserved "|"
+        c <- name
+        fmap ((,) c) (many monotype)
+    pure (ASTADT f a c)
 
-funcDefs :: Parser [Def CoreExpr]
-funcDefs = do
-    (decs,defs) <- fmap partitionEithers (many (fmap Left funcDec <|> fmap Right funcDef))
-    pure (foldr (uncurry addHint) defs decs)
+structData :: Parser ASTData
+structData = do
+    reserved "struct"
+    f <- name
+    a <- many name
+    reserved "="
+    c <- name
+    d <- many $ do
+        reserved "|"
+        d <- name
+        reserved "::"
+        fmap ((,) d) monotype
+    pure (ASTStruct f a c d)
+
+funcDefs :: Parser [Either (Ident,ASTType) (Ident,[Ident],ASTExpr)]
+funcDefs = many (fmap Left funcDec <|> fmap Right funcDef)
 
 exportDec :: Parser String
 exportDec = do
     reserved "export"
     identifier
 
-data TLDecl
-    = TLDef (Def CoreExpr)
-    | TLDec (Name,Polytype)
-    | TLExp String
-    | TLEnt String
+tlStmts :: Parser [ASTTL]
+tlStmts = many $
+    fmap (flip ASTQual ASTExport) (reserved "export" >> name)
+    <|> fmap (flip ASTQual ASTEntry) (reserved "entry" >> name)
+    <|> fmap (flip ASTQual ASTExtern) (reserved "extern" >> name)
+    <|> fmap (uncurry ASTDecl) funcDec
+    <|> fmap ASTFunc funcDef
+    <|> fmap ASTData (gadtData <|> adtData <|> structData)
 
-tlDefs :: Parser [TLDecl]
-tlDefs = many $
-    fmap TLExp (reserved "export" >> identifier)
-    <|> fmap TLDec funcDec
-    <|> fmap TLDef funcDef
-    <|> fmap TLEnt (reserved "entry" >> identifier)
-
-toDefs :: [TLDecl] -> Parser (Maybe String,S.Set String,[Def CoreExpr])
-toDefs d = do
-    (def,dec,exp,ent) <- foldM (\x y -> case (x,y) of
-            ((def,dec,exp,ent),TLExp n) -> pure (def,dec,S.insert n exp,ent)
-            ((def,dec,exp,ent),TLDec d) -> pure (def,d:dec,exp,ent)
-            ((def,dec,exp,ent),TLDef d) -> pure (d:def,dec,exp,ent)
-            ((def,dec,exp,ent),TLEnt e) -> pure (def,dec,S.insert e exp,Just e)) ([],[],S.empty,Nothing) d
-    pure (ent,exp,foldr (uncurry addHint) def dec)
-
-parseLamDefs :: String -> String -> Either ParseError [Def CoreExpr]
-parseLamDefs = parse funcDefs
-
-parseTLDefs :: String -> String -> Either ParseError (Maybe String,S.Set String,[Def CoreExpr])
-parseTLDefs = parse (toDefs =<< tlDefs)
-
-parseLamExpr :: String -> String -> Either ParseError CoreExpr
-parseLamExpr = parse expr
-
-parseMonotype :: String -> String -> Either ParseError Type
-parseMonotype = parse monotype
+parseTL :: String -> String -> Either ParseError [ASTTL]
+parseTL = parse tlStmts

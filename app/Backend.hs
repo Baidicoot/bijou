@@ -1,13 +1,15 @@
 module Backend (cgen,hgen) where
 
-import Datatypes.Lam
+import Datatypes.ANF
+import Datatypes.Pattern
 import Datatypes.Prim
 import Datatypes.Name
-import Control.Monad.Writer
-import Control.Monad.State
+import Control.Monad.RWS
+import Datatypes.Core
 import Data.List (intercalate)
 
 import qualified Data.Set as S
+import qualified Data.Map as M
 
 toCIdent :: Name -> String
 toCIdent = sanitize . show
@@ -25,10 +27,21 @@ anfValToC (ANFLabel n) = toCIdent n
 anfValToC (ANFLit l) = show l
 anfValToC (ANFThrow s) = "printf(\"%s\"," ++ show s ++ ")"
 
-type CWriter = WriterT String (State Int)
+type ABIEnv = M.Map Name Int
+type CWriter = RWS ABIEnv String Int
+
+getTag :: Name -> CWriter Int
+getTag c = do
+    e <- ask
+    case M.lookup c e of
+        Just i -> pure i
+        Nothing -> undefined
 
 indent :: Int -> CWriter ()
 indent = put
+
+indentBy :: Int -> CWriter ()
+indentBy n = modify (+n)
 
 writeLn :: String -> CWriter ()
 writeLn s = do
@@ -45,11 +58,24 @@ assign r v = writeLn $ r ++ " = " ++ v ++ ";"
 index :: String -> Int -> String
 index s i = "((Ptr*)(" ++ s ++ "))[" ++ show i ++ "]"
 
+toCOp :: Primop -> String
+toCOp Add = "+"
+toCOp Sub = "-"
+toCOp Mul = "*"
+toCOp Div = "/"
+
 anfToC :: ANFExpr -> CWriter ()
 anfToC (ANFMkClosure r l a k) = do
     declare r
     toCIdent r `assign` ("malloc(sizeof(Ptr)*" ++ show (length a + 1) ++ ")")
     forM_ (zip (ANFLabel l:a) [0..]) $ \(a,i) ->
+        index (toCIdent r) i `assign` anfValToC a
+    anfToC k
+anfToC (ANFMkCons r c a k) = do
+    declare r
+    toCIdent r `assign` ("malloc(sizeof(Ptr)*" ++ show (length a + 1) ++ ")")
+    t <- getTag c
+    forM_ (zip (ANFLit (IntLit t):a) [0..]) $ \(a,i) ->
         index (toCIdent r) i `assign` anfValToC a
     anfToC k
 anfToC (ANFLet r v k) = do
@@ -69,33 +95,62 @@ anfToC (ANFAppGlobal r f a k) = do
     declare r
     toCIdent r `assign` (toCIdent f ++ "(" ++ intercalate "," (fmap anfValToC a) ++ ")")
     anfToC k
-anfToC (ANFPrimop r Add [x,y] k) = do
+anfToC (ANFPrimop r p [x,y] k) | boolop p = do
     declare r
-    toCIdent r `assign` ("(int)" ++ anfValToC x ++ " + (int)" ++ anfValToC y)
+    toCIdent r `assign` ("(int)" ++ anfValToC x ++ " " ++ toCOp p ++ " (int)" ++ anfValToC y)
     anfToC k
 anfToC (ANFCCall r f a k) = do
     declare r
     toCIdent r `assign` (f ++ "(" ++ intercalate "," (fmap anfValToC a) ++ ")")
     anfToC k
 anfToC (ANFReturn v) = writeLn $ "return " ++ anfValToC v ++ ";"
-anfToC (ANFMatch v _ k) = undefined
+anfToC (ANFMatch x ps d) = do
+    cases <- forM ps $ \(p,k) -> case p of
+        FlatPatternLit l -> pure (anfValToC x ++ " == " ++ anfValToC (ANFLit l),[],k)
+        FlatPatternApp c v -> fmap (\t -> (index (anfValToC x) 0 ++ " == " ++ show t,v,k)) (getTag c)
+    case cases of
+        [] -> anfToC d
+        [(s,v,k)] -> do
+            writeLn ("if (" ++ s ++ ") {")
+            writeCase v k
+            writeLn "} else {"
+            writeCase [] d
+            writeLn "}"
+        ((s,v,k):cs) -> do
+            writeLn ("if (" ++ s ++ ") {")
+            writeCase v k
+            forM_ cs $ \(s,v,k) -> do
+                writeLn ("} else if (" ++ s ++ ") {")
+                writeCase v k
+            writeLn "} else {"
+            writeCase [] d
+            writeLn "}"
+    where
+        writeCase v k = do
+            indentBy 4
+            forM_ (zip v [1..]) $ \(r,i) -> do
+                declare r
+                toCIdent r `assign` index (anfValToC x) i
+            anfToC k
+            indentBy (-4)
+
 anfToC _ = error "undefined"
 
 defHeader :: Name -> [Name] -> String
-defHeader f a = "Ptr " ++ toCIdent f ++ "(Ptr " ++ intercalate ",Ptr " (fmap toCIdent a) ++ ")"
+defHeader f a = "Ptr " ++ toCIdent f ++ "(" ++ intercalate "," (fmap (("Ptr "++) . toCIdent) a) ++ ")"
 
-anfDefToC :: Def ANFExpr -> CWriter ()
-anfDefToC (Def f a _ e) = do
+anfDefToC :: ANFFunc -> CWriter ()
+anfDefToC (ANFFunc f a e) = do
     writeLn $ defHeader f a ++ " {"
     indent 4
     anfToC e
     indent 0
     writeLn "}"
 
-genForwardDecl :: Def ANFExpr -> CWriter ()
-genForwardDecl (Def f a _ _) = writeLn $ defHeader f a ++ ";"
+genForwardDecl :: ANFFunc -> CWriter ()
+genForwardDecl (ANFFunc f a _) = writeLn $ defHeader f a ++ ";"
 
-genC :: Maybe String -> [Def ANFExpr] -> CWriter ()
+genC :: Maybe Name -> [ANFFunc] -> CWriter ()
 genC st d = do
     writeLn "#include <stdlib.h>"
     writeLn "#include <stdint.h>"
@@ -105,22 +160,27 @@ genC st d = do
         Just st -> do
             writeLn "void main(int main_arg) {"
             indent 4
-            writeLn (toCIdent (Exact st) ++ "(main_arg);")
+            writeLn (toCIdent st ++ "(main_arg);")
             indent 0
             writeLn "}"
+        Nothing -> pure ()
     mapM_ anfDefToC d
 
-genH :: [Def ANFExpr] -> CWriter ()
+genH :: [ANFFunc] -> CWriter ()
 genH d = do
     writeLn "#include <stdlib.h>"
     writeLn "#include <stdint.h>"
     writeLn "typedef void* Ptr;"
-    mapM_ (\d@(Def f _ _ _) -> case f of
+    mapM_ (\d@(ANFFunc f _ _) -> case f of
         Exact _ -> genForwardDecl d
         _ -> pure ()) d
 
-cgen :: Maybe String -> [Def ANFExpr] -> String
-cgen st = flip evalState 0 . execWriterT . genC st
+cgen :: M.Map Name Int -> CoreMod -> [ANFFunc] -> String
+cgen e m@(CoreMod st _ _ _ _) d = snd (execRWS (genC st d) e' 0)
+    where
+        e' = M.union e (consTagsTL m)
 
-hgen :: [Def ANFExpr] -> String
-hgen = flip evalState 0 . execWriterT . genH
+hgen :: M.Map Name Int -> CoreMod -> [ANFFunc] -> String
+hgen e m d = snd (execRWS (genH d) e' 0)
+    where
+        e' = M.union e (consTagsTL m)

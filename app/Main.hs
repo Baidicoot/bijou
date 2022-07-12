@@ -3,34 +3,33 @@ module Main where
 
 import Control.Monad
 
-import Datatypes.Lam
-import Datatypes.Prim
+import Datatypes.Core
+
 import ClosureConv
 import PartialApp
 import Parser
 import ANFify
 import Backend
 import Typecheck
-import Rename
+import Desugar
 
 import System.Environment
 
 buildFile :: String -> String -> IO ()
 buildFile root file = do
     str <- readFile (root ++ file)
-    case parseTLDefs (root ++ file) str of
+    case parseTL (root ++ file) str of
         Left e -> error (show e)
-        Right (st,exp,cd) ->
+        Right tl ->
             let
-                rd = renameTL exp cd
-                (s,ld) = cconvDefs mempty 0 rd
-                ((s',_),pd) = partialsDef (mkGlobalMap ld) (s,mempty) ld
+                (Right m) = desugarMod mempty tl
+                (ld,s) = cconvDefs mempty 0 m
+                (s',pd) = partialsMod s mempty m ld
                 (ad,s'') = anfifyDefs s' pd
-                c = cgen st ad
-                h = hgen ad
-            in case runInferRec (s'',mempty) mempty (fmap desugarDef rd) of
+                c = cgen mempty m ad
+                h = hgen mempty m ad
+            in case runInferRec (s'',mempty) (mconcat (fmap consTypes dat)) _ of
                 Right (t,_) -> do
-                    print cd
                     mapM_ (\(n,p) -> putStrLn $ show n ++ " :: " ++ show p) t
                     writeFile (root ++ file ++ ".c") c
                     writeFile (root ++ file ++ ".h") h

@@ -1,8 +1,10 @@
 module Typecheck (runInferRec,runInfer) where
 
-import Datatypes.Lam
+import Datatypes.Type
+import Datatypes.Core
 import Datatypes.Name
 import Datatypes.Prim
+import Datatypes.Pattern
 
 import Control.Monad.Reader
 import Control.Monad.State
@@ -39,7 +41,7 @@ env :: Infer (M.Map Name Polytype)
 env = do
     g <- ask
     s <- gets snd
-    pure (fmap (subst s) g)
+    pure (fmap (substPoly s) g)
 
 generalize :: Type -> Infer Polytype
 generalize t = do
@@ -78,25 +80,15 @@ inferLit :: Lit -> Type
 inferLit (IntLit _) = PrimTy IntTy
 inferLit (StrLit _) = PrimTy StrTy
 
--- fix!!!
-inferLetRec :: [(Name,Maybe Polytype,TypedExpr)] -> Infer [(Name,Polytype)]
+inferLetRec :: [(Name,CoreExpr)] -> Infer [(Name,Polytype)]
 inferLetRec d = do
     r <- mapM (fmap TyVar . const newvar) d
-    let ft = zip (fmap (\(f,_,_)->f) d) r
+    let ft = zip (fmap fst d) r
     withTypes (fmap (second (Forall S.empty)) ft) $
-        zipWithM_ (\(_,p,e) r -> do
+        zipWithM_ (\(_,e) r -> do
             t <- infer e
-            unify r t
-            case p of
-                Just p -> unify (rigidify p) t
-                Nothing -> pure ()) d r
-    zipWithM (\(_,p,_) (n,t) -> case p of
-        Just p -> pure (n,p)
-        Nothing -> fmap ((,) n) (generalize t)) d ft
-
-uncurryType :: Type -> ([Type],Type)
-uncurryType (App (App Arr a) b) = first (a:) (uncurryType b)
-uncurryType x = ([],x)
+            unify r t) d r
+    mapM (\(n,t) -> fmap ((,) n) (generalize t)) ft
 
 bindPattern :: Pattern -> Type -> Infer a -> Infer a
 bindPattern (PatternVar n) t f = withType n (Forall S.empty t) f
@@ -104,36 +96,40 @@ bindPattern (PatternApp c s) t f = do
     ct <- asks (M.lookup c)
     case ct of
         Just p -> do
-            (at,rt) <- fmap uncurryType (instantiate p)
+            (at,rt) <- fmap unarrs (instantiate p)
             foldr (uncurry bindPattern) f (zip s at)
         Nothing -> throwError (UnknownVar c)
 bindPattern (PatternLit l) t f = f
 
-infer :: TypedExpr -> Infer Type
-infer (TypedLam a e) = do
+infer :: CoreExpr -> Infer Type
+infer (CoreAnnot e p) = do
+    t <- infer e
+    unify t (rigidify p)
+    instantiate p
+infer (CoreLam a e) = do
     at <- fmap TyVar newvar
     rt <- withType a (Forall S.empty at) (infer e)
     find (arr at rt)
-infer (TypedLetRec d e) = flip withTypes (infer e) =<< inferLetRec d
-infer (TypedApp a b) = do
+infer (CoreLetRec d e) = flip withTypes (infer e) =<< inferLetRec d
+infer (CoreApp a b) = do
     bt <- infer b
     rt <- fmap TyVar newvar
     at <- infer a
     unify at (bt `arr` rt)
     find rt
-infer (TypedVar n) = do
+infer (CoreVar n) = do
     g <- ask
     case M.lookup n g of
         Just p -> instantiate p
         Nothing -> throwError (UnknownVar n)
-infer (TypedLit l) = pure (inferLit l)
-infer (TypedPrimop p a) = do
+infer (CoreLit l) = pure (inferLit l)
+infer (CorePrimop p a) = do
     mapM_ infer a
     fmap TyVar newvar
-infer (TypedCCall f a) = do
+infer (CoreCCall f a) = do
     mapM_ infer a
     fmap TyVar newvar
-infer (TypedMatch x ps) = do
+infer (CoreMatch x ps) = do
     t <- infer x
     r <- fmap TyVar newvar
     mapM_ (\(p,e) -> do
@@ -141,8 +137,13 @@ infer (TypedMatch x ps) = do
         unify r rt) ps
     find r
 
-runInferRec :: InferState -> InferEnv -> [(Name,Maybe Polytype,TypedExpr)] -> Either TypeError ([(Name,Polytype)],InferState)
+runInferRec :: InferState -> InferEnv -> [(Name,CoreExpr)] -> Either TypeError ([(Name,Polytype)],InferState)
 runInferRec s e = runExcept . flip runReaderT e . flip runStateT s . inferLetRec
 
-runInfer :: InferState -> InferEnv -> TypedExpr -> Either TypeError (Type,InferState)
+runInfer :: InferState -> InferEnv -> CoreExpr -> Either TypeError (Type,InferState)
 runInfer s e = runExcept . flip runReaderT e . flip runStateT s . infer
+
+runInferMod :: Int -> M.Map Name Polytype -> CoreMod -> Either TypeError ([(Name,Polytype)],Int)
+runInferMod s g (CoreMod _ _ d _ f) =
+    let g' = M.unions (g:fmap consTypes d)
+    in fmap (second fst) (runExcept (runReaderT (runStateT (inferLetRec f) (s,mempty)) g'))

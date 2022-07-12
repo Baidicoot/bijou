@@ -1,6 +1,8 @@
 module ANFify where
 
-import Datatypes.Lam
+import Datatypes.Pattern
+import Datatypes.ANF
+import Datatypes.Closure
 import Datatypes.Name
 import Data.Functor.Foldable
 
@@ -19,59 +21,62 @@ fresh = do
 
 type ANFCont = (ANFVal -> ANFExpr) -> ANFExpr
 
-toANF :: NoPartialsExpr -> ANFifier ANFExpr
+toANF :: ClosureExpr -> ANFifier ANFExpr
 toANF = fmap (\f -> f ANFReturn) . cata go
     where
-        go :: NoPartialsExprF (ANFifier ANFCont) -> ANFifier ANFCont
-        go (NoPartialsAppPartialF f x) = do
+        go :: ClosureExprF (ANFifier ANFCont) -> ANFifier ANFCont
+        go (ClosureAppPartialF f x) = do
             ff <- f
             xf <- x
             r <- fresh
             pure (\h -> ff (\fv -> xf (\xv -> ANFAppPartial r fv xv (h (ANFVar r)))))
-        go (NoPartialsAppGlobalF f x) = do
+        go (ClosureAppGlobalF f x) = do
             xf <- foldM (\xf a -> do
                 af <- a
                 pure (\h -> af (\av -> xf (\xv -> h (xv++[av]))))) (\h -> h []) x
             r <- fresh
             pure (\h -> xf (\xs -> ANFAppGlobal r f xs (h (ANFVar r))))
-        go (NoPartialsMkPartialF f x) = do
+        go (ClosureMkPartialF f x) = do
             xf <- foldM (\xf a -> do
                 af <- a
                 pure (\h -> af (\av -> xf (\xv -> h (xv++[av]))))) (\h -> h []) x
             r <- fresh
             pure (\h -> xf (\xs -> ANFMkClosure r f xs (h (ANFVar r))))
-        go (NoPartialsUnpackPartialF n p k) = do
+        go (ClosureUnpackPartialF n p k) = do
             kf <- k
             pf <- p
             pure (\h -> pf (\pv -> ANFUnpackPartial n pv (kf h)))
-        go (NoPartialsLetF n x k) = do
+        go (ClosureLetF n x k) = do
             kf <- k
             xf <- x
             pure (\h -> xf (\xv -> ANFLet n xv (kf h)))
-        go (NoPartialsVarF n) = pure (\h -> h (ANFVar n))
-        go (NoPartialsLabelF n) = pure (\h -> h (ANFLabel n))
-        go (NoPartialsPrimopF p x) = do
+        go (ClosureVarF n) = pure (\h -> h (ANFVar n))
+        go (ClosureLabelF n) = pure (\h -> h (ANFLabel n))
+        go (ClosurePrimopF p x) = do
             xf <- foldM (\xf a -> do
                 af <- a
                 pure (\h -> af (\av -> xf (\xv -> h (xv++[av]))))) (\h -> h []) x
             r <- fresh
             pure (\h -> xf (\xs -> ANFPrimop r p xs (h (ANFVar r))))
-        go (NoPartialsLitF l) = pure (\h -> h (ANFLit l))
-        go (NoPartialsCCallF f x) = do
+        go (ClosureLitF l) = pure (\h -> h (ANFLit l))
+        go (ClosureCCallF f x) = do
             xf <- foldM (\xf a -> do
                 af <- a
                 pure (\h -> af (\av -> xf (\xv -> h (xv++[av]))))) (\h -> h []) x
             r <- fresh
             pure (\h -> xf (\xs -> ANFCCall r f xs (h (ANFVar r))))
-        go (NoPartialsMatchF x p d) = do
+        go (ClosureMatchF x p d) = do
             xf <- x
             df <- d
             pf <- mapM (uncurry (fmap . (,))) p
             pure (\h -> xf (\xv -> ANFMatch xv (fmap (\(a,b) -> (a,b h)) pf) (df h)))
-        go (NoPartialsThrowF e) = pure (\h -> h (ANFThrow e))
+        go (ClosureMkConsF c x) = do
+            xf <- foldM (\xf a -> do
+                af <- a
+                pure (\h -> af (\av -> xf (\xv -> h (xv++[av]))))) (\h -> h []) x
+            r <- fresh
+            pure (\h -> xf (\xs -> ANFMkCons r c xs (h (ANFVar r))))
+        go (ClosureThrowF e) = pure (\h -> h (ANFThrow e))
 
-anfify :: ANFifyState -> NoPartialsExpr -> (ANFExpr,ANFifyState)
-anfify s = flip runState s . toANF
-
-anfifyDefs :: ANFifyState -> [Def NoPartialsExpr] -> ([Def ANFExpr],ANFifyState)
-anfifyDefs s = flip runState s . mapM (\(Def n a t e) -> fmap (Def n a t) (toANF e))
+anfifyDefs :: ANFifyState -> [ClosureFunc] -> ([ANFFunc],ANFifyState)
+anfifyDefs s = flip runState s . mapM (\(ClosureFunc n a e) -> fmap (ANFFunc n a) (toANF e))
