@@ -1,0 +1,9 @@
+dec add :: Int -> Int -> Int
+def add x y = prim<add x y>
+
+extern 2 printf
+dec printf :: Str -> a -> Int
+
+entry start
+dec start :: Int -> Int
+def start x = printf "%i\n" (add 9 13)
