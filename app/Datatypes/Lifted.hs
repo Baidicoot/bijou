@@ -25,5 +25,6 @@ data LiftedExpr
 
 data LiftedDef
     = LiftedDef Name [Name] LiftedExpr
+    deriving(Show)
 
 makeBaseFunctor ''LiftedExpr

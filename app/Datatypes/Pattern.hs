@@ -17,7 +17,7 @@ data Pattern
     = PatternApp Name [Pattern]
     | PatternVar Name
     | PatternLit Lit
-    deriving(Eq)
+    deriving(Show,Eq)
 
 makeBaseFunctor ''Pattern
 

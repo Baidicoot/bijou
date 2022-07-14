@@ -21,7 +21,7 @@ data Lit
 data PrimTy
     = IntTy
     | StrTy
-    deriving(Eq,Show)
+    deriving(Eq,Show,Ord)
 
 instance Show Lit where
     show (IntLit i) = show i

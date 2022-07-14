@@ -26,7 +26,7 @@ type Op = Operator String () Identity
 bijou :: Token.LanguageDef a
 bijou = haskellDef
     { Token.reservedNames = Token.reservedNames haskellDef ++
-        ["ccall","prim","def","letrec","dec","match","with","entry","gadt","struct"]
+        ["ccall","prim","def","val","letrec","dec","match","with","entry","gadt","struct"]
     , Token.reservedOpNames = Token.reservedOpNames haskellDef ++
         [",","(->)","->"]
     }
@@ -146,7 +146,7 @@ letval :: Parser ASTExpr
 letval = do
     reserved "let"
     ds <- many1 $ do
-        reserved "def"
+        reserved "val"
         n <- name
         reservedOp "="
         fmap ((,) n) expr
@@ -245,7 +245,7 @@ adtData = do
     c <- many $ do
         reserved "|"
         c <- name
-        fmap ((,) c) (many monotype)
+        fmap ((,) c) (many monotypeTerm)
     pure (ASTADT f a c)
 
 structData :: Parser ASTData

@@ -60,7 +60,12 @@ makePartials :: LiftedExpr -> Partialer ClosureExpr
 makePartials a@(LiftedApp _ _) = do
     x' <- mapM makePartials x
     case f of
-        LiftedVar f -> do
+        LiftedVar f -> mkClosure f x'
+        LiftedCons f -> mkClosure f x'
+        _ -> error "TYPEERROR"
+    where
+        (f,x) = collectArgs a
+        mkClosure f x' = do
             a <- getArity f
             case a of
                 Just n | n > length x -> do
@@ -70,9 +75,6 @@ makePartials a@(LiftedApp _ _) = do
                     let globApp = ClosureAppGlobal f (take n (reverse x'))
                     in pure (foldr (flip ClosureAppPartial) globApp (take (length x - n) x'))
                 Nothing -> pure (foldr (flip ClosureAppPartial) (ClosureVar f) x')
-        _ -> error "TYPEERROR"
-    where
-        (f,x) = collectArgs a
 makePartials (LiftedLet n x e) = liftM2 (ClosureLet n) (makePartials x) (makePartials e)
 makePartials (LiftedCons n) = do
     a <- getArity n
@@ -115,4 +117,4 @@ mkGlobalMap [] = mempty
 partialsMod :: Int -> M.Map Name Int -> CoreMod -> [LiftedDef] -> (Int,[ClosureFunc])
 partialsMod s g (CoreMod _ _ dd _ _) fd = (\((s,_),d) -> (s,d)) (execRWS (makeCons dd >> makePartialsDef fd) g' (s,mempty))
     where
-        g' = M.unions (g':M.fromList (fmap defArity fd):fmap consArities dd)
+        g' = M.unions (g:M.fromList (fmap defArity fd):fmap consArities dd)

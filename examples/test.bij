@@ -4,13 +4,11 @@ def add x y = prim<add x y>
 dec putInt :: Int -> Int
 def putInt i = ccall<printf "%i\n" i>
 
-def doubleClosure x =
-    let tmp = add x
-    in tmp x
-
-def doublePartial x =
-    letrec def tmp y = add x y
+dec doubleCls :: Int -> Int
+def doubleCls x =
+    let val tmp = add x
     in tmp x
 
 entry start
-def start x = putInt (doubleClosure 5)
+dec start :: Int -> Int
+def start x = putInt (doubleCls 5)

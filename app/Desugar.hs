@@ -17,6 +17,7 @@ import Control.Monad.Except
 
 import qualified Data.Map as M
 import qualified Data.Set as S
+import qualified Data.Foldable as F
 
 -- counter for each variable
 type RenameState = M.Map Ident Int
@@ -29,6 +30,7 @@ data NameError
     | MissingDefs [Name]
     | UntypedExtern Name
     | MultipleEntry [Ident]
+    deriving(Show)
 
 type Renamer = StateT RenameState (ReaderT RenameEnv (Except NameError))
 
@@ -59,10 +61,13 @@ isCons n = do
 withVars :: [(Ident,Name)] -> Renamer a -> Renamer a
 withVars m = local (\(i,c) -> (M.union (M.fromList m) i,c))
 
-bound :: Renamer (S.Set Name)
+bound :: Renamer (S.Set Ident)
 bound = do
     (g,_) <- ask
-    pure (S.fromList (M.elems g))
+    pure (M.keysSet g)
+
+withCons :: S.Set Name -> Renamer a -> Renamer a
+withCons c' = local (\(i,c)->(i,S.union c c'))
 
 bind :: Ident -> Renamer a -> Renamer (Name,a)
 bind i f = do
@@ -130,6 +135,7 @@ desugar = cata go
                 pure (CoreCons n)
             else
                 pure (CoreVar n)
+        go (ASTLitF l) = pure (CoreLit l)
         go (ASTPrimopF p x) = fmap (CorePrimop p) (sequence x)
         go (ASTCCallF f x) = fmap (CoreCCall f) (sequence x)
 
@@ -142,11 +148,17 @@ desugarType = cata go
         go (ASTPrimTyF p) = pure (PrimTy p)
         go (ASTTyVarF v) = fmap TyVar (lookupIdent v)
 
+astTypeFree :: S.Set Ident -> ASTType -> S.Set Ident
+astTypeFree b t = S.difference (cata go t) b
+    where
+        go (ASTTyVarF v) = S.singleton v
+        go x = F.fold x
+
 desugarPoly :: ASTType -> Renamer Polytype
 desugarPoly t = do
-    t' <- desugarType t
     b <- bound
-    pure (Forall (S.difference (fv t') b) t')
+    (n,t') <- bindMany (S.toList (astTypeFree b t)) (desugarType t)
+    pure (Forall (S.fromList n) t')
 
 dataName :: ASTData -> Ident
 dataName (ASTGADT i _) = i
@@ -166,7 +178,8 @@ bindData d f = fmap snd . bindMany (fmap dataName d ++ concatMap (fmap fst . con
         n <- lookupIdent (dataName d)
         cs <- mapM (\(i,t) -> liftM2 (,) (lookupIdent i) (desugarPoly t)) (constructors d)
         pure (CoreADT n cs)
-    fmap ((,) d') f
+    let cons = mconcat (fmap consNames d')
+    fmap ((,) d') (withCons cons f)
 
 partitionTL :: [ASTTL] -> ([ASTData],[(Ident,ASTType)],[(Ident,ASTTLQual)],[ASTDefn])
 partitionTL (ASTData d:ts) = (\(x,y,z,w)->(d:x,y,z,w)) (partitionTL ts)
@@ -198,7 +211,7 @@ desugarASTTL tl =
         (entry,extern,exports) = resolveQualifiers qual
         toBind = filter (not . flip elem extern) (fmap fst decl)
     in do
-        (data',(func',extern',exports')) <- bindData dat . fmap snd . bindExact exports . fmap snd . bindMany toBind $ do
+        (data',(func',extern',exports',entry')) <- bindData dat . fmap snd . bindExact exports . fmap snd . bindMany toBind $ do
             decl' <- mapM (\(i,t) -> liftM2 (,) (lookupIdent i) (desugarPoly t)) decl
             func' <- mapM (\(f,a,e) -> liftM2 (,) (lookupIdent f) (desugarDef a (desugar e))) func
             annot <- addAnnots decl' func'
@@ -208,11 +221,11 @@ desugarASTTL tl =
                     Just p -> pure (n,p)
                     Nothing -> throwError (UntypedExtern n)) extern
             exports' <- mapM lookupIdent exports
-            pure (annot,extern',exports')
-        entry' <- case entry of
-            [i] -> fmap Just (lookupIdent i)
-            [] -> pure Nothing
-            _ -> throwError (MultipleEntry entry)
+            entry' <- case entry of
+                [i] -> fmap Just (lookupIdent i)
+                [] -> pure Nothing
+                _ -> throwError (MultipleEntry entry)
+            pure (annot,extern',exports',entry')
         pure (CoreMod entry' exports' data' extern' func')
 
 desugarMod :: RenameEnv -> [ASTTL] -> Either NameError CoreMod

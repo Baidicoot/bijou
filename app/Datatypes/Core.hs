@@ -28,7 +28,7 @@ data CoreExpr
     | CoreCCall String [CoreExpr]
     | CoreMatch CoreExpr [(Pattern,CoreExpr)]
     | CoreAnnot CoreExpr Polytype
-    | CoreHole
+    deriving(Show)
 
 makeBaseFunctor ''CoreExpr
 
@@ -48,6 +48,7 @@ instance Free CoreExpr where
 
 data CoreADT
     = CoreADT Name [(Name,Polytype)]
+    deriving(Show)
 
 consArities :: CoreADT -> M.Map Name Int
 consArities (CoreADT _ defs) = M.fromList (fmap (\(n,Forall _ t) -> (n,arity t)) defs)
@@ -63,6 +64,7 @@ consNames (CoreADT _ defs) = S.fromList (fmap fst defs)
 
 data CoreMod
     = CoreMod (Maybe Name) [Name] [CoreADT] [(Name,Polytype)] [(Name,CoreExpr)]
+    deriving(Show)
 
 consTagsTL :: CoreMod -> M.Map Name Int
 consTagsTL (CoreMod _ _ d _ _) = M.unions (fmap consTags d)

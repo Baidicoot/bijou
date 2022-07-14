@@ -8,6 +8,7 @@ import Datatypes.Name
 import Data.Functor.Foldable
 import Data.Functor.Foldable.TH
 
+import qualified Data.Foldable as F
 import qualified Data.Set as S
 import qualified Data.Map as M
 
@@ -21,9 +22,9 @@ data Type
     | App Type Type
     | Const Name
     | TyVar Name
-    | Rigid Name
     | PrimTy PrimTy
-    deriving(Eq)
+    | Rigid Name
+    deriving(Eq,Ord)
 
 instance Show Type where
     show Star = "*"
@@ -38,8 +39,8 @@ instance Show Type where
             parens s = s
     show (Const n) = show n
     show (TyVar n) = show n
-    show (Rigid n) = "#" ++ show n
     show (PrimTy p) = show p
+    show (Rigid n) = '#':show n
 
 arr :: Type -> Type -> Type
 arr = App . App Arr
@@ -63,16 +64,17 @@ instance Free Type where
     fv = cata go
         where
             go (TyVarF n) = S.singleton n
-            go (AppF a b) = S.union a b
-            go x = S.empty
+            go x = F.fold x
 
 data TypeError
     = UnificationFail Type Type
+    | UnificationPoly Polytype Polytype
     | RecursiveType Name Type
     | UnknownVar Name
     deriving(Show)
 
 data Polytype = Forall (S.Set Name) Type
+    deriving(Eq,Ord)
 
 instance Show Polytype where
     show (Forall s t) | S.null s = show t
@@ -83,6 +85,3 @@ substPoly g (Forall s t) = Forall s (subst (foldr M.delete g s) t)
 
 instance Free Polytype where
     fv (Forall s t) = S.difference (fv t) s
-
-rigidify :: Polytype -> Type
-rigidify (Forall n t) = subst (M.fromSet Rigid n) t

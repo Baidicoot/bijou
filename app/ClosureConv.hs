@@ -174,6 +174,7 @@ compilePatterns x ((PatternVar n,e):_) = pure (LiftedLet n x e)
 
 smash :: CoreExpr -> ([Name],CoreExpr)
 smash (CoreLam n e) = let (ns,b) = smash e in (n:ns,b)
+smash (CoreAnnot e t) = smash e
 smash x = ([],x)
 
 unsmash :: [Name] -> CoreExpr -> CoreExpr
@@ -203,6 +204,8 @@ liftLams (CorePrimop p xs) = fmap (LiftedPrimop p) (mapM liftLams xs)
 liftLams (CoreCCall f xs) = fmap (LiftedCCall f) (mapM liftLams xs)
 liftLams (CoreLit l) = pure (LiftedLit l)
 liftLams (CoreVar v) = pure (LiftedVar v)
+liftLams (CoreCons n) = pure (LiftedCons n)
+liftLams (CoreAnnot e _) = liftLams e
 
 liftTLDefs :: [(Name,CoreExpr)] -> Lifter ()
 liftTLDefs d = forM_ d $ \(f,e) -> liftDef f (smash e)

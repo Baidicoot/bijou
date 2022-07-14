@@ -25,8 +25,10 @@ data ClosureExpr
     | ClosureCCall String [ClosureExpr]
     | ClosureThrow String
     | ClosureMatch ClosureExpr [(FlatPattern,ClosureExpr)] ClosureExpr
+    deriving(Show)
 
 data ClosureFunc
     = ClosureFunc Name [Name] ClosureExpr
+    deriving(Show)
 
 makeBaseFunctor ''ClosureExpr

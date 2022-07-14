@@ -40,3 +40,4 @@ makeBaseFunctor ''ANFExpr
 
 data ANFFunc
     = ANFFunc Name [Name] ANFExpr
+    deriving(Show)

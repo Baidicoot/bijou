@@ -1,44 +1,43 @@
-export putInt
-dec putInt :: Int -> Int
-def putInt i = ccall<printf "%i\n" i>
+dec putIntLn :: Int -> Int
+def putIntLn i = ccall<printf "%i\n" i>
 
---export add
+dec putStrLn :: Str -> Int
+def putStrLn s = ccall<printf "%s\n" s>
+
 dec add :: Int -> Int -> Int
 def add x y = prim<add x y>
 
---export sub
 dec sub :: Int -> Int -> Int
 def sub x y = prim<sub x y>
 
---export mul
 dec mul :: Int -> Int -> Int
 def mul x y = prim<mul x y>
 
---export div
 dec div :: Int -> Int -> Int
 def div x y = prim<div x y>
 
---export fac
 dec fac :: Int -> Int
 def fac x = match x with
     case 0 of 1
     case y of mul x (fac (sub x 1))
 
-data List =
+gadt List =
     | Cons :: a -> List a -> List a
     | Nil :: List a
 
--- TODO: fix type signatures, add AST thingy and proper desugaring
+dec id :: a -> a
+def id x = x
+
 dec map :: (a -> b) -> List a -> List b
 def map f ls = match ls with
     case Cons a as of Cons (f a) (map f as)
     case Nil of Nil
 
-dec showIntList :: List Int -> Int
-def showIntList ls = match ls with
-    case Cons a as of let h = putInt a in showIntList as
-    case Nil of 0
+dec showList :: (a -> Int) -> List a -> Int
+def showList showElem ls = let val x = map showElem ls in 0
 
 entry start
 dec start :: Int -> Int
-def start x = showIntList (Cons 1 (Cons 3 Nil))
+def start x = let
+val tmp = showList putStrLn (Cons "test" Nil)
+in showList putIntLn (map (add 2) (Cons 1 (Cons 3 Nil)))

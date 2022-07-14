@@ -11,17 +11,19 @@ data Ident
     = Qualified String String
     | Unqualified String
     | Hole
-    deriving(Eq,Ord)
+    deriving(Show,Eq,Ord)
 
 data ASTData
     = ASTGADT Ident [(Ident,ASTType)]
     | ASTADT Ident [Ident] [(Ident,[ASTType])]
     | ASTStruct Ident [Ident] Ident [(Ident,ASTType)]
+    deriving(Show)
 
 data ASTTLQual
     = ASTExtern
     | ASTExport
     | ASTEntry
+    deriving(Show)
 
 astArr :: ASTType -> ASTType -> ASTType
 astArr a b = ASTTyApp (ASTTyApp ASTArr a) b
@@ -32,10 +34,12 @@ data ASTType
     | ASTTyApp ASTType ASTType
     | ASTArr
     | ASTPrimTy PrimTy
+    deriving(Show)
 
 data ASTPattern
     = ASTPatApp Ident [ASTPattern]
     | ASTPatLit Lit
+    deriving(Show)
 
 makeBaseFunctor ''ASTType
 
@@ -52,6 +56,7 @@ data ASTExpr
     | ASTVar Ident
     | ASTPrimop Primop [ASTExpr]
     | ASTCCall String [ASTExpr]
+    deriving(Show)
 
 makeBaseFunctor ''ASTExpr
 
@@ -60,3 +65,4 @@ data ASTTL
     | ASTDecl Ident ASTType
     | ASTFunc ASTDefn
     | ASTQual Ident ASTTLQual
+    deriving(Show)
