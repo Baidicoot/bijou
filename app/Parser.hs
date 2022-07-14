@@ -26,7 +26,7 @@ type Op = Operator String () Identity
 bijou :: Token.LanguageDef a
 bijou = haskellDef
     { Token.reservedNames = Token.reservedNames haskellDef ++
-        ["ccall","prim","def","val","letrec","dec","match","with","entry","gadt","struct"]
+        ["ccall","prim","def","val","letrec","dec","match","with","entry","gadt","struct","extern","export","then"]
     , Token.reservedOpNames = Token.reservedOpNames haskellDef ++
         [",","(->)","->"]
     }
@@ -61,6 +61,9 @@ variable = fmap ASTVar name
 intLit :: Parser Int
 intLit = fmap fromIntegral (try (Token.integer lexer))
 
+natLit :: Parser Int
+natLit = fmap fromIntegral (Token.natural lexer)
+
 strLit :: Parser String
 strLit = Token.stringLiteral lexer
 
@@ -91,6 +94,14 @@ primops =
 ccall :: Parser ASTExpr
 ccall = reserved "ccall" >> angles (liftM2 ASTCCall identifier (many exprTerm))
 
+cstring :: Parser String
+cstring = reservedOp "<<<" >> manyTill anyChar (try (reservedOp ">>>"))
+
+embedC :: Parser String
+embedC = lexeme $ do
+    reserved "ccall"
+    cstring
+
 primop :: Parser ASTExpr
 primop = do
     reserved "prim"
@@ -112,13 +123,13 @@ patternTerm =
 
 match :: Parser ASTExpr
 match = do
-    reserved "match"
+    reserved "case"
     x <- expr
-    reserved "with"
-    cs <- many $ do
-        reserved "case"
+    reserved "of"
+    optional (reservedOp "|")
+    cs <- flip sepBy (reservedOp "|") $ do
         p <- patternExpr
-        reservedOp "of"
+        reservedOp "->"
         fmap ((,) p) expr
     pure (ASTMatch x cs)
 
@@ -130,10 +141,17 @@ litExpr = fmap ASTLit lit
 
 lambda :: Parser ASTExpr
 lambda = parens $ do
-    reserved "\\"
+    reservedOp "\\"
     ns <- many1 name
-    reserved "->"
+    reservedOp "->"
     fmap (ASTLam ns) expr
+
+dothen :: Parser ASTExpr
+dothen = do
+    reserved "do"
+    exprs <- flip sepBy (reserved "then") expr
+    reserved "in"
+    fmap (ASTDoThen exprs) expr
 
 letrec :: Parser ASTExpr
 letrec = do
@@ -157,6 +175,7 @@ exprTerm :: Parser ASTExpr
 exprTerm =
     try lambda
     <|> parens expr
+    <|> dothen
     <|> match
     <|> litExpr
     <|> variable
@@ -221,16 +240,16 @@ funcDef = do
     reserved "def"
     f <- name
     a <- many1 name
-    reserved "="
+    reservedOp "="
     fmap (\e->(f,a,e)) expr
 
 gadtData :: Parser ASTData
 gadtData = do
     reserved "gadt"
     f <- name
-    reserved "="
-    c <- many $ do
-        reserved "|"
+    reservedOp "="
+    optional (reservedOp "|")
+    c <- flip sepBy (reservedOp "|") $ do
         c <- name
         reserved "::"
         fmap ((,) c) monotype
@@ -241,9 +260,9 @@ adtData = do
     reserved "data"
     f <- name
     a <- many name
-    reserved "="
-    c <- many $ do
-        reserved "|"
+    reservedOp "="
+    optional (reservedOp "|")
+    c <- flip sepBy (reservedOp "|") $ do
         c <- name
         fmap ((,) c) (many monotypeTerm)
     pure (ASTADT f a c)
@@ -253,30 +272,46 @@ structData = do
     reserved "struct"
     f <- name
     a <- many name
-    reserved "="
+    reservedOp "="
     c <- name
-    d <- many $ do
-        reserved "|"
+    optional (reservedOp "|")
+    d <- flip sepBy (reservedOp "|") $ do
         d <- name
-        reserved "::"
+        reservedOp "::"
         fmap ((,) d) monotype
     pure (ASTStruct f a c d)
 
 funcDefs :: Parser [Either (Ident,ASTType) (Ident,[Ident],ASTExpr)]
 funcDefs = many (fmap Left funcDec <|> fmap Right funcDef)
 
-exportDec :: Parser String
+exportDec :: Parser (Ident,ASTTLQual)
 exportDec = do
     reserved "export"
-    identifier
+    a <- natLit
+    i <- name
+    pure (i,ASTExport a)
+
+externDec :: Parser (Ident,ASTTLQual)
+externDec = do
+    reserved "extern"
+    a <- natLit
+    i <- name
+    pure (i,ASTExtern a)
+
+entryDec :: Parser (Ident,ASTTLQual)
+entryDec = do
+    reserved "entry"
+    i <- name
+    pure (i,ASTEntry)
 
 tlStmts :: Parser [ASTTL]
 tlStmts = many $
-    fmap (flip ASTQual ASTExport) (reserved "export" >> name)
-    <|> fmap (flip ASTQual ASTEntry) (reserved "entry" >> name)
-    <|> fmap (flip ASTQual ASTExtern) (reserved "extern" >> name)
+    fmap (uncurry ASTQual) exportDec
+    <|> fmap (uncurry ASTQual) entryDec
+    <|> fmap (uncurry ASTQual) externDec
     <|> fmap (uncurry ASTDecl) funcDec
     <|> fmap ASTFunc funcDef
+    <|> fmap ASTEmbC embedC
     <|> fmap ASTData (gadtData <|> adtData <|> structData)
 
 parseTL :: String -> String -> Either ParseError [ASTTL]

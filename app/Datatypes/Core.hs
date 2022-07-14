@@ -11,6 +11,7 @@ import Datatypes.Pattern
 import Data.Functor.Foldable
 import Data.Functor.Foldable.TH
 
+import Data.Bifunctor (first,second)
 import qualified Data.Foldable as F
 import Data.Maybe (mapMaybe)
 import qualified Data.Set as S
@@ -62,22 +63,34 @@ consTags (CoreADT _ defs) = M.fromList (zipWith ((,) . fst) defs [0..])
 consNames :: CoreADT -> S.Set Name
 consNames (CoreADT _ defs) = S.fromList (fmap fst defs)
 
+adtName :: CoreADT -> Name
+adtName (CoreADT t _) = t
+
 data CoreMod
-    = CoreMod (Maybe Name) [Name] [CoreADT] [(Name,Polytype)] [(Name,CoreExpr)]
+    = CoreMod (Maybe Name) String [(Name,Int)] [CoreADT] [(Name,(Int,Polytype))] [(Name,CoreExpr)]
     deriving(Show)
 
 consTagsTL :: CoreMod -> M.Map Name Int
-consTagsTL (CoreMod _ _ d _ _) = M.unions (fmap consTags d)
+consTagsTL (CoreMod _ _ _ d _ _) = M.unions (fmap consTags d)
 
 defsTL :: CoreMod -> [(Name,CoreExpr)]
-defsTL (CoreMod _ _ _ _ f) = f
+defsTL (CoreMod _ _ _ _ _ f) = f
 
 globalsTL :: CoreMod -> S.Set Name
-globalsTL (CoreMod _ _ d e f) = S.unions (S.fromList (fmap fst e):S.fromList (fmap fst f):fmap consNames d)
+globalsTL (CoreMod _ _ _ d e f) = S.unions (S.fromList (fmap fst e):S.fromList (fmap fst f):fmap consNames d)
 
 typedTL :: CoreMod -> M.Map Name Polytype
-typedTL (CoreMod _ _ d e f) = M.unions (M.fromList e:M.fromList t:fmap consTypes d)
+typedTL (CoreMod _ _ _ d e f) = M.unions (M.fromList (fmap (second snd) e):M.fromList t:fmap consTypes d)
     where
         t = mapMaybe (\(n,e) -> case e of
             CoreAnnot _ p -> Just (n,p)
             _ -> Nothing) f
+
+typedTLWithoutDefs :: CoreMod -> M.Map Name Polytype
+typedTLWithoutDefs (CoreMod _ _ _ d e _) = M.unions (M.fromList (fmap (second snd) e):fmap consTypes d)
+
+aritiesTL :: CoreMod -> M.Map Name Int
+aritiesTL (CoreMod _ _ ep d ex _) = M.unions (M.fromList ep:M.fromList (fmap (second fst) ex):fmap consArities d)
+
+embeddedC :: CoreMod -> String
+embeddedC (CoreMod _ c _ _ _ _) = c

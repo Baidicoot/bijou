@@ -150,12 +150,13 @@ anfDefToC (ANFFunc f a e) = do
 genForwardDecl :: ANFFunc -> CWriter ()
 genForwardDecl (ANFFunc f a _) = writeLn $ defHeader f a ++ ";"
 
-genC :: Maybe Name -> [ANFFunc] -> CWriter ()
-genC st d = do
+genC :: Maybe Name -> String -> [ANFFunc] -> CWriter ()
+genC st c d = do
     writeLn "#include <stdlib.h>"
     writeLn "#include <stdint.h>"
     writeLn "typedef void* Ptr;"
     mapM_ genForwardDecl d
+    writeLn c
     case st of
         Just st -> do
             writeLn "void main(int main_arg) {"
@@ -166,21 +167,22 @@ genC st d = do
         Nothing -> pure ()
     mapM_ anfDefToC d
 
-genH :: [ANFFunc] -> CWriter ()
-genH d = do
+genH :: String -> [ANFFunc] -> CWriter ()
+genH c d = do
     writeLn "#include <stdlib.h>"
     writeLn "#include <stdint.h>"
     writeLn "typedef void* Ptr;"
     mapM_ (\d@(ANFFunc f _ _) -> case f of
         Exact _ -> genForwardDecl d
         _ -> pure ()) d
+    writeLn c
 
 cgen :: M.Map Name Int -> CoreMod -> [ANFFunc] -> String
-cgen e m@(CoreMod st _ _ _ _) d = snd (execRWS (genC st d) e' 0)
+cgen e m@(CoreMod st c _ _ _ _) d = snd (execRWS (genC st c d) e' 0)
     where
         e' = M.union e (consTagsTL m)
 
 hgen :: M.Map Name Int -> CoreMod -> [ANFFunc] -> String
-hgen e m d = snd (execRWS (genH d) e' 0)
+hgen e m d = snd (execRWS (genH (embeddedC m) d) e' 0)
     where
         e' = M.union e (consTagsTL m)

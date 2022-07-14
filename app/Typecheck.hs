@@ -197,7 +197,7 @@ infer (CoreMatch x ps) = do
 infer (CoreCons n) = instantiate =<< lookupName n
 
 runInferMod :: Int -> M.Map Name Polytype -> CoreMod -> (Either TypeError ([(Name,Polytype)],Int),[Debug])
-runInferMod s g (CoreMod _ _ d _ f) =
+runInferMod s g m@(CoreMod _ _ _ _ _ f) =
     first (fmap (second fst)) (runWriter (runExceptT (runReaderT (runStateT (inferLetRec f) (s,mempty)) g')))
     where
-        g' = M.unions (g:fmap consTypes d)
+        g' = M.union g (typedTLWithoutDefs m)

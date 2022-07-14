@@ -1,0 +1,75 @@
+ccall<<<
+#include<string.h>
+>>>
+
+extern 1 strlen
+dec strlen :: Str -> Int
+
+extern 1 malloc
+dec malloc :: Int -> Str
+
+extern 2 strcpy
+dec strcpy :: Str -> Str -> Int
+
+extern 2 strcat
+dec strcat :: Str -> Str -> Int
+
+
+dec add :: Int -> Int -> Int
+def add x y = prim<add x y>
+
+dec sub :: Int -> Int -> Int
+def sub x y = prim<sub x y>
+
+dec fuseStr :: Str -> Str -> Str
+def fuseStr x y =
+    let
+        val len = add 1 (add (strlen x) (strlen y))
+        val out = malloc len
+        val hole_0 = strcpy out x
+        val hole_1 = strcat out y
+    in out
+
+dec putStrLn :: Str -> Int
+def putStrLn s = ccall<printf "%s\n" s>
+
+data String
+    = SCons Str String
+    | SNil
+
+data Unit = Top
+
+dec stringLen :: String -> Int
+def stringLen xs =
+    letrec
+        dec go :: String -> Int -> Int
+        def go x l = case x of
+            | SCons s xs -> go xs (add l (strlen s))
+            | SNil -> l
+    in go xs 0
+
+dec unpack :: Str -> String
+def unpack x = SCons x SNil
+
+dec pack :: String -> Str
+def pack x =
+    let
+        val len = stringLen x
+        val ptr = malloc (add len 1)
+    in do strcpy ptr ""
+    in letrec
+        dec appendToPtr :: String -> Unit
+        def appendToPtr x = case x of
+            | SCons s xs -> do strcat ptr s in appendToPtr xs
+            | SNil -> Top
+    in do appendToPtr x
+    in ptr
+
+dec append :: String -> String -> String
+def append x y = case x of
+    | SCons s xs -> SCons s (append xs y)
+    | SNil -> y
+
+entry start
+dec start :: Int -> Int
+def start x = putStrLn (pack (SCons "hhh" (SCons "iii" SNil)))

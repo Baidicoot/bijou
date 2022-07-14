@@ -37,32 +37,41 @@ appImplicit f = cata go
             Nothing -> CoreVar n
         go x = embed x
 
-lam :: [Name] -> CoreExpr -> CoreExpr
-lam (a:as) e = CoreLam a (lam as e)
-lam [] e = e
-
 app :: CoreExpr -> [Name] -> CoreExpr
 app = foldr (flip CoreApp . CoreVar)
 
+smash :: CoreExpr -> ([Name],CoreExpr)
+smash (CoreLam n e) = let (ns,b) = smash e in (n:ns,b)
+smash (CoreAnnot e t) = smash e
+smash x = ([],x)
+
+unsmash :: [Name] -> CoreExpr -> CoreExpr
+unsmash (n:ns) e = CoreLam n (unsmash ns e)
+unsmash [] e = e
+
 closureConv :: S.Set Name -> CoreExpr -> CoreExpr
-closureConv g (CoreLam n e) =
-    let free = S.toList (S.difference (fv e) (S.insert n g))
-    in app (lam free (closureConv g e)) free
+closureConv g l@(CoreLam _ _) =
+    let (ns,e) = smash l
+        free = S.toList (S.difference (fv e) (S.union (S.fromList ns) g))
+    in app (unsmash (free++ns) (closureConv g e)) free
 closureConv g (CoreLetRec d e) =
     let
         fns = S.fromList (fmap fst d)
+        g' = S.union fns g
         sets = M.fromList (fmap (\(f,e) -> (,) f
             ( S.intersection fns (fv e)
-            , S.difference (fv e) (S.union fns g))) d)
+            , S.difference (fv e) g')) d)
         df = fmap S.toList (transitiveClosure sets)
-    in CoreLetRec (fmap (\(f,e) ->
-        (f, lam (M.findWithDefault [] f df) (closureConv g (appImplicit df e)))) d)
+    in CoreLetRec (fmap (\(f,l) ->
+        let (ns,e) = smash l
+        in (f, unsmash (M.findWithDefault [] f (fmap (S.toList . snd) sets) ++ ns) (closureConv g' (appImplicit df e)))) d)
         (closureConv g (appImplicit df e))
 closureConv g (CoreApp a b) = CoreApp (closureConv g a) (closureConv g b)
 closureConv g (CoreLet n x e) = CoreLet n (closureConv g x) (closureConv g e)
 closureConv g (CorePrimop p x) = CorePrimop p (fmap (closureConv g) x)
 closureConv g (CoreCCall f x) = CoreCCall f (fmap (closureConv g) x)
 closureConv g (CoreMatch e cs) = CoreMatch (closureConv g e) (fmap (second (closureConv g)) cs)
+closureConv g (CoreAnnot e _) = closureConv g e
 closureConv _ x = x
 
 fresh :: Lifter Name
@@ -172,15 +181,6 @@ compilePatterns x cs@((PatternApp n _,_):_) = do
 compilePatterns x ((PatternVar n,e):_) = pure (LiftedLet n x e)
 -}
 
-smash :: CoreExpr -> ([Name],CoreExpr)
-smash (CoreLam n e) = let (ns,b) = smash e in (n:ns,b)
-smash (CoreAnnot e t) = smash e
-smash x = ([],x)
-
-unsmash :: [Name] -> CoreExpr -> CoreExpr
-unsmash (n:ns) e = CoreLam n (unsmash ns e)
-unsmash [] e = e
-
 liftDef :: Name -> ([Name],CoreExpr) -> Lifter ()
 liftDef n (a,e) = do
     e' <- liftLams e
@@ -237,7 +237,7 @@ liftLams = cata go
 --liftDefs = tell <=< mapM (\(Def f n t e) -> fmap (Def f n t) (liftLams e))
 
 cconvDefs :: S.Set Name -> CCState -> CoreMod -> ([LiftedDef],CCState)
-cconvDefs g s m@(CoreMod _ _ _ _ f) = (flip runState s . execWriterT . liftTLDefs . fmap (second (closureConv g'))) f
+cconvDefs g s m@(CoreMod _ _ _ _ _ f) = (flip runState s . execWriterT . liftTLDefs . fmap (second (closureConv g'))) f
     where
         g' = S.union (globalsTL m) g
 --cconvDefs g s d = runWriter . flip execStateT s . liftDefs . fmap (\(Def f n t e) -> Def f n t (closureConv g' e)) $ d

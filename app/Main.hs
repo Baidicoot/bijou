@@ -4,6 +4,9 @@ module Main where
 import Control.Monad
 
 import Datatypes.Core
+import Datatypes.Prim
+import Datatypes.Name
+import Datatypes.Type
 
 import ClosureConv
 import PartialApp
@@ -21,15 +24,12 @@ buildFile root file = do
     case parseTL (root ++ file) str of
         Left e -> error (show e)
         Right tl -> do
-            print tl
             print (desugarMod mempty tl)
             let (Right m) = desugarMod mempty tl
             let (ld,s) = cconvDefs mempty 0 m
             print ld
             let (s',pd) = partialsMod s mempty m ld
-            print pd
             let (ad,s'') = anfifyDefs s' pd
-            print ad
             let c = cgen mempty m ad
             let h = hgen mempty m ad
             case runInferMod s'' mempty m of
@@ -39,7 +39,15 @@ buildFile root file = do
                     writeFile (root ++ file ++ ".h") h
                 (Left e,d) -> mapM putStrLn d >> print e
 
+fn :: CoreExpr
+fn =
+    flip CoreAnnot (Forall mempty (arr (PrimTy IntTy) (PrimTy IntTy))) $
+    CoreLam (User "x" 0) $
+    CoreLet (User "y" 0) (CoreLit (IntLit 0)) $
+        CoreLam (User "x" 0) (CoreVar (User "y" 0))
+
 main :: IO ()
 main = do
+    --print (closureConv mempty fn)
     (root:fs) <- getArgs
     mapM_ (buildFile root) fs

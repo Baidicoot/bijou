@@ -1,14 +1,8 @@
-dec add :: Int -> Int -> Int
-def add x y = prim<add x y>
-
-dec putInt :: Int -> Int
-def putInt i = ccall<printf "%i\n" i>
-
-dec doubleCls :: Int -> Int
-def doubleCls x =
-    let val tmp = add x
-    in tmp x
+dec test :: Int -> Int
+def test x =
+    let val y = 0
+    in (\x -> y)
 
 entry start
 dec start :: Int -> Int
-def start x = putInt (doubleCls 5)
+def start x = 0

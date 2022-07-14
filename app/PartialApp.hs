@@ -115,6 +115,6 @@ mkGlobalMap (LiftedDef n args _:x) = M.insert n (length args) (mkGlobalMap x)
 mkGlobalMap [] = mempty
 
 partialsMod :: Int -> M.Map Name Int -> CoreMod -> [LiftedDef] -> (Int,[ClosureFunc])
-partialsMod s g (CoreMod _ _ dd _ _) fd = (\((s,_),d) -> (s,d)) (execRWS (makeCons dd >> makePartialsDef fd) g' (s,mempty))
+partialsMod s g m@(CoreMod _ _ _ dd _ _) fd = (\((s,_),d) -> (s,d)) (execRWS (makeCons dd >> makePartialsDef fd) g' (s,mempty))
     where
-        g' = M.unions (g:M.fromList (fmap defArity fd):fmap consArities dd)
+        g' = M.unions [g,M.fromList (fmap defArity fd),aritiesTL m]

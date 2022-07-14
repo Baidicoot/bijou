@@ -1,0 +1,33 @@
+data Unit =
+    | Top
+
+dec add :: Int -> Int -> Int
+def add x y = prim<add x y>
+
+dec sub :: Int -> Int -> Int
+def sub x y = prim<sub x y>
+
+dec putInt :: Int -> Unit
+def putInt x = ccall<printf "%i\n" x>
+
+data Fix f =
+    | Unfix (f (Fix f))
+
+data Maybe a =
+    | Just a
+    | Nothing
+
+dec count :: Fix Maybe -> Int
+def count f = match f with
+    case Unfix Nothing of 0
+    case Unfix (Just g) of add 1 (count g)
+
+dec uncount :: Int -> Fix Maybe
+def uncount i = match i with
+    case 0 of Unfix Nothing
+    case x of Unfix (Just (uncount (sub x 1)))
+
+entry start
+dec start :: Int -> Unit
+def start x = match putInt (count (uncount 70)) with
+    case Top of Top

@@ -17,27 +17,30 @@ dec div :: Int -> Int -> Int
 def div x y = prim<div x y>
 
 dec fac :: Int -> Int
-def fac x = match x with
-    case 0 of 1
-    case y of mul x (fac (sub x 1))
+def fac x = case x of
+    | 0 -> 1
+    | y -> mul x (fac (sub x 1))
 
-gadt List =
-    | Cons :: a -> List a -> List a
-    | Nil :: List a
+data List a =
+    | Cons a (List a)
+    | Nil
 
 dec id :: a -> a
 def id x = x
 
 dec map :: (a -> b) -> List a -> List b
-def map f ls = match ls with
-    case Cons a as of Cons (f a) (map f as)
-    case Nil of Nil
+def map f ls = case ls of
+    | Cons a as -> Cons (f a) (map f as)
+    | Nil -> Nil
 
 dec showList :: (a -> Int) -> List a -> Int
 def showList showElem ls = let val x = map showElem ls in 0
 
+extern 2 printf
+dec printf :: Str -> Str -> Int
+
 entry start
 dec start :: Int -> Int
-def start x = let
-val tmp = showList putStrLn (Cons "test" Nil)
-in showList putIntLn (map (add 2) (Cons 1 (Cons 3 Nil)))
+def start x = do
+    map (printf "%s ") (Cons "world!" (Cons "hello," Nil))
+    in 0

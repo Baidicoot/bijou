@@ -20,8 +20,8 @@ data ASTData
     deriving(Show)
 
 data ASTTLQual
-    = ASTExtern
-    | ASTExport
+    = ASTExtern Int
+    | ASTExport Int
     | ASTEntry
     deriving(Show)
 
@@ -56,6 +56,7 @@ data ASTExpr
     | ASTVar Ident
     | ASTPrimop Primop [ASTExpr]
     | ASTCCall String [ASTExpr]
+    | ASTDoThen [ASTExpr] ASTExpr
     deriving(Show)
 
 makeBaseFunctor ''ASTExpr
@@ -65,4 +66,5 @@ data ASTTL
     | ASTDecl Ident ASTType
     | ASTFunc ASTDefn
     | ASTQual Ident ASTTLQual
+    | ASTEmbC String
     deriving(Show)
