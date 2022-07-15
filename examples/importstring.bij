@@ -1,0 +1,8 @@
+import string
+
+dec app :: String -> String -> String
+def app x y = append x y
+
+entry start
+dec start :: Int -> Int
+def start x = putString (append (unpack "test") (unpack "bees"))

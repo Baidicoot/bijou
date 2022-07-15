@@ -24,6 +24,7 @@ data Type
     | TyVar Name
     | PrimTy PrimTy
     | Rigid Name
+    | Weak Name
     deriving(Eq,Ord)
 
 instance Show Type where
@@ -41,6 +42,7 @@ instance Show Type where
     show (TyVar n) = show n
     show (PrimTy p) = show p
     show (Rigid n) = '#':show n
+    show (Weak n) = '\'':show n
 
 arr :: Type -> Type -> Type
 arr = App . App Arr
@@ -58,7 +60,15 @@ instance Subst Type where
     subst g = cata go
         where
             go (TyVarF n) = M.findWithDefault (TyVar n) n g
+            go (WeakF n) = M.findWithDefault (Weak n) n g
             go x = embed x
+
+substVars :: M.Map Name Name -> Type -> Type
+substVars g = cata go
+    where
+        go (TyVarF n) = TyVar (M.findWithDefault n n g)
+        go (WeakF n) = Weak (M.findWithDefault n n g)
+        go x = embed x
 
 instance Free Type where
     fv = cata go

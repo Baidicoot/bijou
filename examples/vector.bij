@@ -1,0 +1,67 @@
+data CPtr a = |
+data Unit = Top
+
+ccall<<<
+#include<string.h>
+
+Ptr ptrs_alloc(Ptr n) {
+    return malloc(sizeof(Ptr)*(int)n);
+}
+
+Ptr ptrs_copy(Ptr dest, Ptr src, Ptr n) {
+    memcpy(dest,src,sizeof(Ptr)*(int)n);
+    return 0;
+}
+
+Ptr ptrs_write(Ptr a,Ptr i,Ptr v) {
+    ((Ptr*)a)[(int)i] = v;
+    return 0;
+}
+
+Ptr ptrs_read(Ptr a,Ptr i) {
+    return ((Ptr*)a)[(int)i];
+}
+>>>
+
+extern 1 ptrs_alloc
+dec ptrs_alloc :: Int -> CPtr a
+
+extern 3 ptrs_write
+dec ptrs_write :: CPtr a -> Int -> a -> Unit
+
+extern 2 ptrs_read
+dec ptrs_read :: CPtr a -> Int -> a
+
+extern 2 ptrs_cpy
+dec ptrs_cpy :: CPtr a -> CPtr a -> Int -> Unit
+
+data MVec a
+    = MVector Int (CPtr a)
+
+dec MVec :: Int -> MVec 'a
+def MVec s = MVector s (ptrs_alloc s)
+
+dec writeMVec :: MVec a -> Int -> a -> Unit
+def writeMVec vec idx x = case vec of
+    | MVector len ptr ->
+        do ptrs_write ptr idx x
+        in Top
+
+dec indexMVec :: MVec a -> Int -> a
+def indexMVec vec idx = case vec of
+    | MVector len ptr -> ptrs_read ptr idx
+
+dec putStrLn :: Str -> Unit
+def putStrLn x = ccall<printf "%s\n" x>
+
+entry start
+dec start :: Int -> Unit
+def start x =
+    let val v = MVec 10
+    in do writeMVec v 0 "test"
+    then writeMVec v 1 "hello"
+    then writeMVec v 2 "world"
+    then putStrLn (indexMVec v 0)
+    then putStrLn (indexMVec v 1)
+    then putStrLn (indexMVec v 2)
+    in Top

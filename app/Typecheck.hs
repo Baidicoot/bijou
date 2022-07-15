@@ -40,8 +40,8 @@ find t = do
 
 instantiate :: Polytype -> Infer Type
 instantiate (Forall n t) = do
-    m <- sequence (M.fromSet (fmap TyVar . const newvar) n)
-    t <- find (subst m t)
+    m <- sequence (M.fromSet (const newvar) n)
+    t <- find (substVars m t)
     pure t
 
 env :: Infer (M.Map Name Polytype)
@@ -77,8 +77,12 @@ unify a b = do
     b <- find b
     case (a,b) of
         (x,y) | x == y -> pure ()
+        (Weak n,t) | not (occurs n t) -> bind n t
+        (t,Weak n) | not (occurs n t) -> bind n t
         (TyVar n,t) | not (occurs n t) -> bind n t
         (t,TyVar n) | not (occurs n t) -> bind n t
+        (Weak n,t) -> throwError (RecursiveType n t)
+        (t,Weak n) -> throwError (RecursiveType n t)
         (TyVar n,t) -> throwError (RecursiveType n t)
         (t,TyVar n) -> throwError (RecursiveType n t)
         (App a b,App c d) -> unify a c >> unify b d

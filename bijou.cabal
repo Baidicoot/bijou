@@ -28,6 +28,7 @@ executable bijou
     other-modules:
         Datatypes.ANF,
         Datatypes.AST,
+        Datatypes.Build,
         Datatypes.Closure,
         Datatypes.Core,
         Datatypes.Lifted,
@@ -37,6 +38,7 @@ executable bijou
         Datatypes.Type,
         ANFify,
         Backend,
+        Build,
         ClosureConv,
         Desugar,
         Parser,

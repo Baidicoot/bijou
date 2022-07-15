@@ -11,16 +11,6 @@ import Data.List (intercalate)
 import qualified Data.Set as S
 import qualified Data.Map as M
 
-toCIdent :: Name -> String
-toCIdent = sanitize . show
-
-sanitize :: String -> String
-sanitize = concatMap sanitizeChar
-    where
-        sanitizeChar '.' = "_"
-        sanitizeChar '_' = "_underscore_"
-        sanitizeChar c = [c]
-
 anfValToC :: ANFVal -> String
 anfValToC (ANFVar n) = toCIdent n
 anfValToC (ANFLabel n) = toCIdent n
@@ -150,11 +140,12 @@ anfDefToC (ANFFunc f a e) = do
 genForwardDecl :: ANFFunc -> CWriter ()
 genForwardDecl (ANFFunc f a _) = writeLn $ defHeader f a ++ ";"
 
-genC :: Maybe Name -> String -> [ANFFunc] -> CWriter ()
-genC st c d = do
+genC :: [String] -> Maybe Name -> String -> [ANFFunc] -> CWriter ()
+genC inc st c d = do
     writeLn "#include <stdlib.h>"
     writeLn "#include <stdint.h>"
     writeLn "typedef void* Ptr;"
+    mapM_ (\f -> writeLn ("#include \"" ++ f ++ "\"")) inc
     mapM_ genForwardDecl d
     writeLn c
     case st of
@@ -167,22 +158,24 @@ genC st c d = do
         Nothing -> pure ()
     mapM_ anfDefToC d
 
-genH :: String -> [ANFFunc] -> CWriter ()
-genH c d = do
+genH :: S.Set Name -> [ANFFunc] -> CWriter ()
+genH exp d = do
     writeLn "#include <stdlib.h>"
     writeLn "#include <stdint.h>"
     writeLn "typedef void* Ptr;"
-    mapM_ (\d@(ANFFunc f _ _) -> case f of
-        Exact _ -> genForwardDecl d
-        _ -> pure ()) d
-    writeLn c
+    mapM_ (\d@(ANFFunc f _ _) ->
+        if S.member f exp then
+            genForwardDecl d
+        else
+            pure ()) d
 
-cgen :: M.Map Name Int -> CoreMod -> [ANFFunc] -> String
-cgen e m@(CoreMod st c _ _ _ _) d = snd (execRWS (genC st c d) e' 0)
+cgen :: [String] -> M.Map Name Int -> CoreMod -> [ANFFunc] -> String
+cgen inc e m@(CoreMod st c _ _ _ _) d = snd (execRWS (genC inc st c d) e' 0)
     where
         e' = M.union e (consTagsTL m)
 
 hgen :: M.Map Name Int -> CoreMod -> [ANFFunc] -> String
-hgen e m d = snd (execRWS (genH (embeddedC m) d) e' 0)
+hgen e m d = snd (execRWS (genH x d) e' 0)
     where
         e' = M.union e (consTagsTL m)
+        x = S.fromList (cons (exportNamesTL m) ++ funcs (exportNamesTL m))

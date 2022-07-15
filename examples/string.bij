@@ -1,3 +1,10 @@
+export
+    fuseStr, putStr, putStrLn,
+    Unit, Top,
+    String, stringLen, append,
+    unpack, pack,
+    putString, putStringLn
+
 ccall<<<
 #include<string.h>
 >>>
@@ -29,6 +36,9 @@ def fuseStr x y =
         val hole_0 = strcpy out x
         val hole_1 = strcat out y
     in out
+
+dec putStr :: Str -> Int
+def putStr s = ccall<printf s>
 
 dec putStrLn :: Str -> Int
 def putStrLn s = ccall<printf "%s\n" s>
@@ -70,6 +80,8 @@ def append x y = case x of
     | SCons s xs -> SCons s (append xs y)
     | SNil -> y
 
-entry start
-dec start :: Int -> Int
-def start x = putStrLn (pack (SCons "hhh" (SCons "iii" SNil)))
+dec putString :: String -> Int
+def putString s = ccall<printf (pack s)>
+
+dec putStringLn :: String -> Int
+def putStringLn s = ccall<printf "%s\n" (pack s)>

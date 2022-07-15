@@ -18,7 +18,13 @@ import Data.Functor.Foldable hiding(fold)
 import Data.Foldable (foldMap,fold)
 
 type CCState = Int
-type Lifter = WriterT [LiftedDef] (State CCState)
+type Lifter = WriterT ([LiftedDef],[(Name,Int)]) (State CCState)
+
+addDef :: LiftedDef -> Lifter ()
+addDef d = tell ([d],[])
+
+addArity :: Name -> Int -> Lifter ()
+addArity n a = tell ([],[(n,a)])
 
 -- compute the transitive closure of a class of named sets augmented with some data d
 transitiveClosure :: (Ord n, Monoid d, Eq d) => M.Map n (S.Set n,d) -> M.Map n d
@@ -184,7 +190,8 @@ compilePatterns x ((PatternVar n,e):_) = pure (LiftedLet n x e)
 liftDef :: Name -> ([Name],CoreExpr) -> Lifter ()
 liftDef n (a,e) = do
     e' <- liftLams e
-    tell [LiftedDef n a e']
+    addDef (LiftedDef n a e')
+    addArity n (length a)
 
 liftLams :: CoreExpr -> Lifter LiftedExpr
 liftLams e@(CoreLam _ _) = do
@@ -236,7 +243,7 @@ liftLams = cata go
 --liftDefs :: [Def CoreExpr] -> Lifter ()
 --liftDefs = tell <=< mapM (\(Def f n t e) -> fmap (Def f n t) (liftLams e))
 
-cconvDefs :: S.Set Name -> CCState -> CoreMod -> ([LiftedDef],CCState)
+cconvDefs :: S.Set Name -> CCState -> CoreMod -> (([LiftedDef],[(Name,Int)]),CCState)
 cconvDefs g s m@(CoreMod _ _ _ _ _ f) = (flip runState s . execWriterT . liftTLDefs . fmap (second (closureConv g'))) f
     where
         g' = S.union (globalsTL m) g

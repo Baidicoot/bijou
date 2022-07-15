@@ -63,12 +63,25 @@ consTags (CoreADT _ defs) = M.fromList (zipWith ((,) . fst) defs [0..])
 consNames :: CoreADT -> S.Set Name
 consNames (CoreADT _ defs) = S.fromList (fmap fst defs)
 
-adtName :: CoreADT -> Name
-adtName (CoreADT t _) = t
+typeName :: CoreADT -> Name
+typeName (CoreADT t _) = t
+
+data CoreModExports = Exports
+    { cons :: [Name]
+    , types :: [Name]
+    , funcs :: [Name]
+    }
+    deriving(Show)
+
+exportNames :: CoreModExports -> S.Set Name
+exportNames (Exports c t f) = S.fromList (c ++ t ++ f)
 
 data CoreMod
-    = CoreMod (Maybe Name) String [(Name,Int)] [CoreADT] [(Name,(Int,Polytype))] [(Name,CoreExpr)]
+    = CoreMod (Maybe Name) String CoreModExports [CoreADT] [(Name,(Int,Polytype))] [(Name,CoreExpr)]
     deriving(Show)
+
+datasMod :: CoreMod -> [CoreADT]
+datasMod (CoreMod _ _ _ d _ _) = d
 
 consTagsTL :: CoreMod -> M.Map Name Int
 consTagsTL (CoreMod _ _ _ d _ _) = M.unions (fmap consTags d)
@@ -89,8 +102,11 @@ typedTL (CoreMod _ _ _ d e f) = M.unions (M.fromList (fmap (second snd) e):M.fro
 typedTLWithoutDefs :: CoreMod -> M.Map Name Polytype
 typedTLWithoutDefs (CoreMod _ _ _ d e _) = M.unions (M.fromList (fmap (second snd) e):fmap consTypes d)
 
+exportNamesTL :: CoreMod -> CoreModExports
+exportNamesTL (CoreMod _ _ x _ _ _) = x
+
 aritiesTL :: CoreMod -> M.Map Name Int
-aritiesTL (CoreMod _ _ ep d ex _) = M.unions (M.fromList ep:M.fromList (fmap (second fst) ex):fmap consArities d)
+aritiesTL (CoreMod _ _ ep d ex _) = M.unions (M.fromList (fmap (second fst) ex):fmap consArities d)
 
 embeddedC :: CoreMod -> String
 embeddedC (CoreMod _ c _ _ _ _) = c

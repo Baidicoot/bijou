@@ -3,6 +3,7 @@ module Parser (parseTL) where
 import Datatypes.AST
 import Datatypes.Prim
 import Datatypes.Name
+import Datatypes.Build
 
 import Text.Parsec
 import qualified Text.Parsec.Token as Token
@@ -54,6 +55,9 @@ lexeme = Token.lexeme lexer
 
 name :: Parser Ident
 name = fmap Unqualified identifier
+
+weakName :: Parser Ident
+weakName = char '\''  >> name
 
 variable :: Parser ASTExpr
 variable = fmap ASTVar name
@@ -215,6 +219,7 @@ monotypeTerm =
     try arrFn
     <|> parens monotype
     <|> fmap ASTPrimTy litType
+    <|> fmap ASTWeakVar weakName
     <|> fmap ASTTyVar name
 
 appType :: Op ASTType
@@ -228,12 +233,27 @@ appType = Infix space AssocLeft
 monotype :: Parser ASTType
 monotype = buildExpressionParser [[appType],[binary "->" astArr AssocRight]] monotypeTerm
 
-funcDec :: Parser (Ident,ASTType)
+explicitPoly :: Parser ASTPoly
+explicitPoly = do
+    reserved "forall"
+    id <- many name
+    reservedOp ","
+    fmap (ASTPolyExplicit id) monotype
+
+implicitPoly :: Parser ASTPoly
+implicitPoly = fmap ASTPolyImplicit monotype
+
+polytype :: Parser ASTPoly
+polytype =
+    explicitPoly
+    <|> implicitPoly
+
+funcDec :: Parser (Ident,ASTPoly)
 funcDec = do
     reserved "dec"
     f <- name
     reservedOp "::"
-    fmap ((,) f) monotype
+    fmap ((,) f) polytype
 
 funcDef :: Parser (Ident,[Ident],ASTExpr)
 funcDef = do
@@ -252,7 +272,7 @@ gadtData = do
     c <- flip sepBy (reservedOp "|") $ do
         c <- name
         reserved "::"
-        fmap ((,) c) monotype
+        fmap ((,) c) polytype
     pure (ASTGADT f c)
 
 adtData :: Parser ASTData
@@ -281,38 +301,56 @@ structData = do
         fmap ((,) d) monotype
     pure (ASTStruct f a c d)
 
-funcDefs :: Parser [Either (Ident,ASTType) (Ident,[Ident],ASTExpr)]
+funcDefs :: Parser [Either (Ident,ASTPoly) (Ident,[Ident],ASTExpr)]
 funcDefs = many (fmap Left funcDec <|> fmap Right funcDef)
 
-exportDec :: Parser (Ident,ASTTLQual)
+exportDec :: Parser ASTTLQual
 exportDec = do
     reserved "export"
-    a <- natLit
-    i <- name
-    pure (i,ASTExport a)
+    ns <- sepBy1 name (reservedOp ",")
+    pure (ASTExport ns)
 
-externDec :: Parser (Ident,ASTTLQual)
+externDec :: Parser ASTTLQual
 externDec = do
     reserved "extern"
     a <- natLit
     i <- name
-    pure (i,ASTExtern a)
+    pure (ASTExtern i a)
 
-entryDec :: Parser (Ident,ASTTLQual)
+entryDec :: Parser ASTTLQual
 entryDec = do
     reserved "entry"
     i <- name
-    pure (i,ASTEntry)
+    pure (ASTEntry i)
 
 tlStmts :: Parser [ASTTL]
 tlStmts = many $
-    fmap (uncurry ASTQual) exportDec
-    <|> fmap (uncurry ASTQual) entryDec
-    <|> fmap (uncurry ASTQual) externDec
+    fmap ASTQual exportDec
+    <|> fmap ASTQual entryDec
+    <|> fmap ASTQual externDec
     <|> fmap (uncurry ASTDecl) funcDec
     <|> fmap ASTFunc funcDef
     <|> fmap ASTEmbC embedC
     <|> fmap ASTData (gadtData <|> adtData <|> structData)
 
-parseTL :: String -> String -> Either ParseError [ASTTL]
-parseTL = parse tlStmts
+tlQualifiedImport :: Parser Import
+tlQualifiedImport = do
+    reserved "qualified"
+    p <- flip sepBy (reservedOp ".") identifier
+    reserved "as"
+    q <- identifier
+    pure (ImportQual p q)
+
+tlImport :: Parser Import
+tlImport = do
+    reserved "import"
+    p <- flip sepBy (reservedOp ".") identifier
+    pure (Import p)
+
+tlImports :: Parser [Import]
+tlImports = many $
+    tlQualifiedImport
+    <|> tlImport
+
+parseTL :: String -> String -> Either ParseError ([Import],[ASTTL])
+parseTL = parse (liftM2 (,) tlImports tlStmts)

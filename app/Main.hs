@@ -1,53 +1,20 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Main where
 
-import Control.Monad
-
-import Datatypes.Core
-import Datatypes.Prim
-import Datatypes.Name
-import Datatypes.Type
-
-import ClosureConv
-import PartialApp
-import Parser
-import ANFify
-import Backend
-import Typecheck
-import Desugar
-
 import System.Environment
+import Control.Monad
+import Build
 
-buildFile :: String -> String -> IO ()
-buildFile root file = do
-    str <- readFile (root ++ file)
-    case parseTL (root ++ file) str of
-        Left e -> error (show e)
-        Right tl -> do
-            print (desugarMod mempty tl)
-            let (Right m) = desugarMod mempty tl
-            let (ld,s) = cconvDefs mempty 0 m
-            print ld
-            let (s',pd) = partialsMod s mempty m ld
-            let (ad,s'') = anfifyDefs s' pd
-            let c = cgen mempty m ad
-            let h = hgen mempty m ad
-            case runInferMod s'' mempty m of
-                (Right (t,_),_) -> do
-                    mapM_ (\(n,p) -> putStrLn $ show n ++ " :: " ++ show p) t
-                    writeFile (root ++ file ++ ".c") c
-                    writeFile (root ++ file ++ ".h") h
-                (Left e,d) -> mapM putStrLn d >> print e
-
-fn :: CoreExpr
-fn =
-    flip CoreAnnot (Forall mempty (arr (PrimTy IntTy) (PrimTy IntTy))) $
-    CoreLam (User "x" 0) $
-    CoreLet (User "y" 0) (CoreLit (IntLit 0)) $
-        CoreLam (User "x" 0) (CoreVar (User "y" 0))
+wordsWhen :: (Char -> Bool) -> String -> [String]
+wordsWhen p s = case dropWhile p s of
+    "" -> []
+    s' ->
+        let (w, s'') = break p s'
+        in w : wordsWhen p s''
 
 main :: IO ()
 main = do
-    --print (closureConv mempty fn)
-    (root:fs) <- getArgs
-    mapM_ (buildFile root) fs
+    (root:build:fs) <- getArgs
+    let ps = fmap (wordsWhen (=='.')) fs
+    ms <- foldM (\ms p -> fmap ((:ms) . (,) p) (buildModule root build ms p)) [] ps
+    pure ()
