@@ -30,8 +30,8 @@ modTypes :: Module -> M.Map Name Polytype
 modTypes (Module d e c _) = M.unions (M.fromList (fmap (\(n,p,_)->(n,p)) e)
     :fmap (M.filterWithKey (const . flip elem c) . consTypes) d)
 
-modTags :: Module -> M.Map Name Int
-modTags (Module d _ _ _) = M.unions (fmap consTags d)
+modReprs :: Module -> M.Map Name Repr
+modReprs (Module d _ _ _) = M.unions (fmap consRepr d)
 
 modCons :: Module -> S.Set Name
 modCons (Module _ _ c _) = S.fromList c

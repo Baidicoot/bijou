@@ -1,7 +1,7 @@
 #include <stdlib.h>
 #include <stdint.h>
 typedef void* Ptr;
-Ptr string_Top();
+Ptr string_Top_0();
 Ptr string_fuseStr_0(Ptr string_x_2,Ptr string_y_2);
 Ptr string_putStr_0(Ptr string_s_0);
 Ptr string_putStrLn_0(Ptr string_s_1);

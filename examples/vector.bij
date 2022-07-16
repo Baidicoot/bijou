@@ -1,5 +1,8 @@
-data CPtr a = |
-data Unit = Top
+import mutref
+
+export MVec, newMVec, writeMVec, indexMVec, growMVec
+
+data CPtr a
 
 ccall<<<
 #include<string.h>
@@ -8,7 +11,7 @@ Ptr ptrs_alloc(Ptr n) {
     return malloc(sizeof(Ptr)*(int)n);
 }
 
-Ptr ptrs_copy(Ptr dest, Ptr src, Ptr n) {
+Ptr ptrs_cpy(Ptr dest, Ptr src, Ptr n) {
     memcpy(dest,src,sizeof(Ptr)*(int)n);
     return 0;
 }
@@ -24,44 +27,66 @@ Ptr ptrs_read(Ptr a,Ptr i) {
 >>>
 
 extern 1 ptrs_alloc
-dec ptrs_alloc :: Int -> CPtr a
+dec ptrs_alloc :: Int -> CPtr 'a
 
 extern 3 ptrs_write
-dec ptrs_write :: CPtr a -> Int -> a -> Unit
+dec ptrs_write :: CPtr a -> Int -> a -> Int
 
 extern 2 ptrs_read
 dec ptrs_read :: CPtr a -> Int -> a
 
-extern 2 ptrs_cpy
-dec ptrs_cpy :: CPtr a -> CPtr a -> Int -> Unit
+extern 3 ptrs_cpy
+dec ptrs_cpy :: CPtr a -> CPtr a -> Int -> Int
 
 data MVec a
-    = MVector Int (CPtr a)
+    = MVector (ref Int) (ref (CPtr a))
 
-dec MVec :: Int -> MVec 'a
-def MVec s = MVector s (ptrs_alloc s)
+dec newMVec :: Int -> MVec 'a
+def newMVec s = MVector (newref s) (newref (ptrs_alloc s))
 
-dec writeMVec :: MVec a -> Int -> a -> Unit
+dec lenMVec :: MVec a -> Int
+def lenMVec vec = case vec of
+    | MVector len ptr -> (getref len)
+
+dec writeMVec :: MVec a -> Int -> a -> Int
 def writeMVec vec idx x = case vec of
     | MVector len ptr ->
-        do ptrs_write ptr idx x
-        in Top
+        do ptrs_write (getref ptr) idx x
+        in 0
 
 dec indexMVec :: MVec a -> Int -> a
 def indexMVec vec idx = case vec of
-    | MVector len ptr -> ptrs_read ptr idx
+    | MVector len ptr -> ptrs_read (getref ptr) idx
 
-dec putStrLn :: Str -> Unit
-def putStrLn x = ccall<printf "%s\n" x>
+dec growMVec :: MVec a -> Int -> Int
+def growMVec vec growth = case vec of
+    | MVector len ptr ->
+        let val len' = prim<add (getref len) growth>
+            val ptr' = ptrs_alloc len'
+        in do ptrs_cpy ptr' (getref ptr) (getref len)
+        then putref ptr ptr'
+        then putref len len'
+        in len'
+
+dec putMString :: MVec Str -> Int
+def putMString s =
+letrec def go s n = case prim<sub (lenMVec s) n> of
+    | 0 -> 0
+    | x ->
+        do ccall<printf (indexMVec s n)>
+        in go s prim<add n 1>
+in go s 0
 
 entry start
-dec start :: Int -> Unit
+dec start :: Int -> Int
 def start x =
-    let val v = MVec 10
-    in do writeMVec v 0 "test"
-    then writeMVec v 1 "hello"
-    then writeMVec v 2 "world"
-    then putStrLn (indexMVec v 0)
-    then putStrLn (indexMVec v 1)
-    then putStrLn (indexMVec v 2)
-    in Top
+let val vec = newMVec 2
+in do
+     writeMVec vec 0 "hello, "
+then writeMVec vec 1 "world!\n"
+then putMString vec
+then growMVec vec 1
+then writeMVec vec 1 "to "
+then writeMVec vec 2 "you!\n"
+then putMString vec
+in 0

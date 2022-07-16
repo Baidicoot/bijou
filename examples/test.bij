@@ -1,8 +1,12 @@
-dec test :: Int -> Int
-def test x =
-    let val y = 0
-    in (\x -> y)
+dec putInt :: Int -> Int
+def putInt x = ccall<printf "%i\n" x>
+
+dec app :: (a -> b) -> a -> b
+def app f x = f x
+
+dec add :: Int -> Int -> Int
+def add x y = prim<add x y>
 
 entry start
 dec start :: Int -> Int
-def start x = 0
+def start x = putInt (app (add 4) 3)

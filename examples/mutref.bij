@@ -1,0 +1,38 @@
+export ref, newref, getref, putref
+
+ccall<<<
+Ptr newref_internal(Ptr v) {
+    Ptr* loc = malloc(sizeof(Ptr));
+    *loc = v;
+    return loc;
+}
+
+Ptr getref_internal(Ptr loc) {
+    return *((Ptr*)loc);
+}
+
+Ptr putref_internal(Ptr loc,Ptr v) {
+    *((Ptr*)loc) = v;
+    return 0;
+}
+>>>
+
+data ref a
+
+extern 1 newref_internal
+dec newref_internal :: a -> ref 'a
+
+dec newref :: a -> ref 'a
+def newref x = newref_internal x
+
+extern 1 getref_internal
+dec getref_internal :: ref a -> a
+
+dec getref :: ref a -> a
+def getref r = getref_internal r
+
+extern 2 putref_internal
+dec putref_internal :: ref a -> a -> Int
+
+dec putref :: ref a -> a -> Int
+def putref r x = putref_internal r x

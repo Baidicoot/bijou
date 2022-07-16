@@ -1,9 +1,9 @@
 #include <stdlib.h>
 #include <stdint.h>
 typedef void* Ptr;
-Ptr string_SCons(Ptr v_69,Ptr v_70);
-Ptr string_SNil();
-Ptr string_Top();
+Ptr string_SCons_0(Ptr v_69,Ptr v_70);
+Ptr string_SNil_0();
+Ptr string_Top_0();
 Ptr string_add_0(Ptr string_x_0,Ptr string_y_0);
 Ptr string_sub_0(Ptr string_x_1,Ptr string_y_1);
 Ptr string_fuseStr_0(Ptr string_x_2,Ptr string_y_2);
@@ -19,7 +19,7 @@ Ptr string_putString_0(Ptr string_s_5);
 Ptr string_putStringLn_0(Ptr string_s_6);
 #include<string.h>
 
-Ptr string_SCons(Ptr v_69,Ptr v_70) {
+Ptr string_SCons_0(Ptr v_69,Ptr v_70) {
     Ptr v_71;
     v_71 = malloc(sizeof(Ptr)*3);
     ((Ptr*)(v_71))[0] = 0;
@@ -27,13 +27,13 @@ Ptr string_SCons(Ptr v_69,Ptr v_70) {
     ((Ptr*)(v_71))[2] = v_70;
     return v_71;
 }
-Ptr string_SNil() {
+Ptr string_SNil_0() {
     Ptr v_72;
     v_72 = malloc(sizeof(Ptr)*1);
     ((Ptr*)(v_72))[0] = 1;
     return v_72;
 }
-Ptr string_Top() {
+Ptr string_Top_0() {
     Ptr v_73;
     v_73 = malloc(sizeof(Ptr)*1);
     ((Ptr*)(v_73))[0] = 0;
@@ -114,15 +114,15 @@ Ptr string_stringLen_0(Ptr string_xs_0) {
 }
 Ptr string_unpack_0(Ptr string_x_4) {
     Ptr v_89;
-    v_89 = string_SNil();
+    v_89 = string_SNil_0();
     Ptr v_90;
-    v_90 = string_SCons(string_x_4,v_89);
+    v_90 = string_SCons_0(string_x_4,v_89);
     return v_90;
 }
 Ptr string_appendToPtr_0(Ptr string_ptr_0,Ptr string_x_6) {
     if (((Ptr*)(string_x_6))[0] == 1) {
         Ptr v_91;
-        v_91 = string_Top();
+        v_91 = string_Top_0();
         return v_91;
     } else if (((Ptr*)(string_x_6))[0] == 0) {
         Ptr v_65;
@@ -180,7 +180,7 @@ Ptr string_append_0(Ptr string_x_7,Ptr string_y_3) {
         Ptr v_99;
         v_99 = string_append_0(string_xs_3,string_y_3);
         Ptr v_100;
-        v_100 = string_SCons(string_s_4,v_99);
+        v_100 = string_SCons_0(string_s_4,v_99);
         return v_100;
     } else {
         return printf("%s","no match");

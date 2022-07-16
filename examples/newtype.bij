@@ -1,0 +1,53 @@
+data Unit = Top
+
+data Nat = NewNat Int
+
+dec fromInt :: Int -> Nat
+def fromInt x = NewNat x
+
+dec toInt :: Nat -> Int
+def toInt x = case x of
+    | NewNat i -> i
+
+dec liftInt :: (Int -> a) -> Nat -> a
+def liftInt f x = case x of
+    | NewNat i -> f i
+
+data List a
+    = Cons a (List a)
+    | Nil
+
+data Bool
+    = False
+    | True
+
+dec branch :: (Bool -> a) -> (Bool -> a) -> Bool -> a
+def branch t f b = case b of
+    | True -> t True
+    | False -> f False
+
+dec map :: (a -> b) -> List a -> List b
+def map f ls = case ls of
+    | Cons x xs -> Cons (f x) (map f xs)
+    | Nil -> Nil
+
+dec putInt :: Int -> Unit
+def putInt x = ccall<printf "%i\n" x>
+
+dec add :: Int -> Int -> Int
+def add x y = prim<add x y>
+
+dec matchUnit :: Unit -> Unit
+def matchUnit x = case x of
+    | Top -> Top
+
+entry start
+dec start :: Unit -> Unit
+def start x =
+let
+val is = Cons 1 (Cons 2 Nil)
+val ns = map fromInt is
+val js = map (liftInt (add 4)) ns
+in do
+    map putInt js
+in Top

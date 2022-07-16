@@ -1,0 +1,14 @@
+extern 1 dummy
+dec dummy :: Int -> 'a
+
+dec test :: ('a -> 'a) -> 'a -> 'a
+def test f x = f x
+
+dec id :: a -> a
+def id x = x
+
+dec id' :: 'a -> 'a
+def id' x = x
+
+dec whatever :: Int -> Int
+def whatever x = test id'

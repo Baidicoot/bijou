@@ -20,7 +20,7 @@ data Type
     = Arr
     | Star
     | App Type Type
-    | Const Name
+    | ConstTy Name
     | TyVar Name
     | PrimTy PrimTy
     | Rigid Name
@@ -38,7 +38,7 @@ instance Show Type where
         where
             parens s | any isSpace s = "(" ++ s ++ ")"
             parens s = s
-    show (Const n) = show n
+    show (ConstTy n) = show n
     show (TyVar n) = show n
     show (PrimTy p) = show p
     show (Rigid n) = '#':show n
@@ -56,11 +56,17 @@ arity = length . fst . unarrs
 
 makeBaseFunctor ''Type
 
+weaken :: Type -> Type
+weaken = cata go
+    where
+        go (TyVarF n) = Weak n
+        go x = embed x
+
 instance Subst Type where
     subst g = cata go
         where
             go (TyVarF n) = M.findWithDefault (TyVar n) n g
-            go (WeakF n) = M.findWithDefault (Weak n) n g
+            go (WeakF n) = weaken (M.findWithDefault (Weak n) n g)
             go x = embed x
 
 substVars :: M.Map Name Name -> Type -> Type

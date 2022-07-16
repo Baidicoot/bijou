@@ -51,12 +51,12 @@ buildModule root build m p = do
     (t,s) <- fromEitherM (fst (runInferMod 0 gamma cm)) (ioError . userError . show)
     let ((ld,ar),s') = cconvDefs globals s cm
     let arities = M.unions (fmap (modArities . snd) m)
-    let (s'',pd) = partialsMod s' arities cm ld
+    let reprs = M.unions (fmap (modReprs . snd) m)
+    let (s'',pd) = partialsMod s' reprs arities cm ld
     let (ad,s''') = anfifyDefs s'' pd
     let headers = fmap ((++".h") . toBuildPath . importMod) imp
-    let tags = M.unions (fmap (modTags . snd) m)
-    let cFileCont = cgen headers tags cm ad
-    let hFileCont = hgen tags cm ad
+    let cFileCont = cgen headers cm ad
+    let hFileCont = hgen cm ad
     let buildPath = build ++ "/" ++ toBuildPath p
     writeFile (buildPath ++ ".c") cFileCont
     writeFile (buildPath ++ ".h") hFileCont

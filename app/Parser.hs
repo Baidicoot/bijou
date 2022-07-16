@@ -267,25 +267,27 @@ gadtData :: Parser ASTData
 gadtData = do
     reserved "gadt"
     f <- name
-    reservedOp "="
-    optional (reservedOp "|")
-    c <- flip sepBy (reservedOp "|") $ do
-        c <- name
-        reserved "::"
-        fmap ((,) c) polytype
-    pure (ASTGADT f c)
+    flip (<|>) (pure (ASTGADT f [])) $ do
+        reservedOp "="
+        optional (reservedOp "|")
+        c <- flip sepBy (reservedOp "|") $ do
+            c <- name
+            reserved "::"
+            fmap ((,) c) polytype
+        pure (ASTGADT f c)
 
 adtData :: Parser ASTData
 adtData = do
     reserved "data"
     f <- name
     a <- many name
-    reservedOp "="
-    optional (reservedOp "|")
-    c <- flip sepBy (reservedOp "|") $ do
-        c <- name
-        fmap ((,) c) (many monotypeTerm)
-    pure (ASTADT f a c)
+    flip (<|>) (pure (ASTADT f a [])) $ do
+        reservedOp "="
+        optional (reservedOp "|")
+        c <- flip sepBy (reservedOp "|") $ do
+            c <- name
+            fmap ((,) c) (many monotypeTerm)
+        pure (ASTADT f a c)
 
 structData :: Parser ASTData
 structData = do

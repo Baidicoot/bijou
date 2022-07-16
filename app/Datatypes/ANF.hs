@@ -15,6 +15,7 @@ data ANFVal
     = ANFVar Name
     | ANFLabel Name
     | ANFLit Lit
+    | ANFRef Name
     | ANFThrow String
 
 instance Show ANFVal where
@@ -24,15 +25,14 @@ instance Show ANFVal where
     show (ANFThrow e) = "throw '" ++ e ++ "'"
 
 data ANFExpr
-    = ANFMkClosure Name Name [ANFVal] ANFExpr
-    | ANFMkCons Name Name [ANFVal] ANFExpr
+    = ANFMkRecord Name [ANFVal] ANFExpr
     | ANFLet Name ANFVal ANFExpr
-    | ANFUnpackPartial [Name] ANFVal ANFExpr
-    | ANFAppPartial Name ANFVal ANFVal ANFExpr
+    | ANFIndexRecord Name Int ANFVal ANFExpr
+    | ANFAppLocal Name ANFVal [ANFVal] ANFExpr
     | ANFAppGlobal Name Name [ANFVal] ANFExpr
     | ANFPrimop Name Primop [ANFVal] ANFExpr
     | ANFCCall Name String [ANFVal] ANFExpr
-    | ANFMatch ANFVal [(FlatPattern,ANFExpr)] ANFExpr
+    | ANFSwitch ANFVal [(Lit,ANFExpr)] ANFExpr
     | ANFReturn ANFVal
     deriving(Show)
 
@@ -40,4 +40,5 @@ makeBaseFunctor ''ANFExpr
 
 data ANFFunc
     = ANFFunc Name [Name] ANFExpr
+    | ANFConst Name Lit
     deriving(Show)

@@ -25,33 +25,36 @@ toANF :: ClosureExpr -> ANFifier ANFExpr
 toANF = fmap (\f -> f ANFReturn) . cata go
     where
         go :: ClosureExprF (ANFifier ANFCont) -> ANFifier ANFCont
-        go (ClosureAppPartialF f x) = do
+        go (ClosureAppLocalF f x) = do
             ff <- f
-            xf <- x
+            xf <- foldM (\xf a -> do
+                af <- a
+                pure (\h -> af (\av -> xf (\xv -> h (xv++[av]))))) (\h -> h []) x
             r <- fresh
-            pure (\h -> ff (\fv -> xf (\xv -> ANFAppPartial r fv xv (h (ANFVar r)))))
+            pure (\h -> ff (\fv -> xf (\xs -> ANFAppLocal r fv xs (h (ANFVar r)))))
         go (ClosureAppGlobalF f x) = do
             xf <- foldM (\xf a -> do
                 af <- a
                 pure (\h -> af (\av -> xf (\xv -> h (xv++[av]))))) (\h -> h []) x
             r <- fresh
             pure (\h -> xf (\xs -> ANFAppGlobal r f xs (h (ANFVar r))))
-        go (ClosureMkPartialF f x) = do
+        go (ClosureMkRecordF x) = do
             xf <- foldM (\xf a -> do
                 af <- a
                 pure (\h -> af (\av -> xf (\xv -> h (xv++[av]))))) (\h -> h []) x
             r <- fresh
-            pure (\h -> xf (\xs -> ANFMkClosure r f xs (h (ANFVar r))))
-        go (ClosureUnpackPartialF n p k) = do
+            pure (\h -> xf (\xs -> ANFMkRecord r xs (h (ANFVar r))))
+        go (ClosureIndexRecordF n i r k) = do
             kf <- k
-            pf <- p
-            pure (\h -> pf (\pv -> ANFUnpackPartial n pv (kf h)))
+            rf <- r
+            pure (\h -> rf (\rv -> ANFIndexRecord n i rv (kf h)))
         go (ClosureLetF n x k) = do
             kf <- k
             xf <- x
             pure (\h -> xf (\xv -> ANFLet n xv (kf h)))
         go (ClosureVarF n) = pure (\h -> h (ANFVar n))
         go (ClosureLabelF n) = pure (\h -> h (ANFLabel n))
+        go (ClosureRefF n) = pure (\h -> h (ANFRef n))
         go (ClosurePrimopF p x) = do
             xf <- foldM (\xf a -> do
                 af <- a
@@ -65,18 +68,14 @@ toANF = fmap (\f -> f ANFReturn) . cata go
                 pure (\h -> af (\av -> xf (\xv -> h (xv++[av]))))) (\h -> h []) x
             r <- fresh
             pure (\h -> xf (\xs -> ANFCCall r f xs (h (ANFVar r))))
-        go (ClosureMatchF x p d) = do
+        go (ClosureSwitchF x p d) = do
             xf <- x
             df <- d
             pf <- mapM (uncurry (fmap . (,))) p
-            pure (\h -> xf (\xv -> ANFMatch xv (fmap (\(a,b) -> (a,b h)) pf) (df h)))
-        go (ClosureMkConsF c x) = do
-            xf <- foldM (\xf a -> do
-                af <- a
-                pure (\h -> af (\av -> xf (\xv -> h (xv++[av]))))) (\h -> h []) x
-            r <- fresh
-            pure (\h -> xf (\xs -> ANFMkCons r c xs (h (ANFVar r))))
+            pure (\h -> xf (\xv -> ANFSwitch xv (fmap (\(a,b) -> (a,b h)) pf) (df h)))
         go (ClosureThrowF e) = pure (\h -> h (ANFThrow e))
 
 anfifyDefs :: ANFifyState -> [ClosureFunc] -> ([ANFFunc],ANFifyState)
-anfifyDefs s = flip runState s . mapM (\(ClosureFunc n a e) -> fmap (ANFFunc n a) (toANF e))
+anfifyDefs s = flip runState s . mapM (\f -> case f of
+    ClosureFunc n a e -> fmap (ANFFunc n a) (toANF e)
+    ClosureConst n l -> pure (ANFConst n l))

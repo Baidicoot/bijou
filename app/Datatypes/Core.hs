@@ -57,8 +57,20 @@ consArities (CoreADT _ defs) = M.fromList (fmap (\(n,Forall _ t) -> (n,arity t))
 consTypes :: CoreADT -> M.Map Name Polytype
 consTypes (CoreADT _ defs) = M.fromList defs
 
-consTags :: CoreADT -> M.Map Name Int
-consTags (CoreADT _ defs) = M.fromList (zipWith ((,) . fst) defs [0..])
+data Repr
+    = Enum Int
+    | Struct
+    | Newtype
+    | Standard Int
+    | Const Int
+
+consRepr :: CoreADT -> M.Map Name Repr
+consRepr (CoreADT _ cs) | all (\(_,Forall _ t) -> arity t==0) cs = M.fromList (fmap (\((c,_),i)->(c,Enum i)) (zip cs [0..]))
+consRepr (CoreADT _ [(c,Forall _ t)]) | arity t == 1 = M.singleton c Newtype
+consRepr (CoreADT _ [(c,_)]) = M.singleton c Struct
+consRepr (CoreADT _ cs) = M.fromList (fmap (\((c,Forall _ t),i) -> case arity t of
+    0 -> (c,Const i)
+    _ -> (c,Standard i)) (zip cs [0..]))
 
 consNames :: CoreADT -> S.Set Name
 consNames (CoreADT _ defs) = S.fromList (fmap fst defs)
@@ -83,8 +95,8 @@ data CoreMod
 datasMod :: CoreMod -> [CoreADT]
 datasMod (CoreMod _ _ _ d _ _) = d
 
-consTagsTL :: CoreMod -> M.Map Name Int
-consTagsTL (CoreMod _ _ _ d _ _) = M.unions (fmap consTags d)
+consReprTL :: CoreMod -> M.Map Name Repr
+consReprTL (CoreMod _ _ _ d _ _) = M.unions (fmap consRepr d)
 
 defsTL :: CoreMod -> [(Name,CoreExpr)]
 defsTL (CoreMod _ _ _ _ _ f) = f
@@ -107,6 +119,9 @@ exportNamesTL (CoreMod _ _ x _ _ _) = x
 
 aritiesTL :: CoreMod -> M.Map Name Int
 aritiesTL (CoreMod _ _ ep d ex _) = M.unions (M.fromList (fmap (second fst) ex):fmap consArities d)
+
+startName :: CoreMod -> Maybe Name
+startName (CoreMod st _ _ _ _ _) = st
 
 embeddedC :: CoreMod -> String
 embeddedC (CoreMod _ c _ _ _ _) = c

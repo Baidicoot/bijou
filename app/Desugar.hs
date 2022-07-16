@@ -98,11 +98,13 @@ bindExact is =
     let is' = fmap (Exact . identToStr) is
     in fmap ((,) is') . (withVars (zip is is'))
 
+{-
 bindExport :: [Ident] -> Renamer a -> Renamer ([Name],a)
 bindExport is f = do
     p <- path
     let is' = fmap (Export p . identToStr) is
     fmap ((,) is') (withVars (zip is is') f)
+-}
 
 patternBinds :: ASTPattern -> Renamer a -> Renamer (Pattern,a)
 patternBinds (ASTPatApp i ps) f = do
@@ -174,7 +176,7 @@ desugarType = cata go
             n <- lookupIdent v
             b <- isConst n
             if b then
-                pure (Const n)
+                pure (ConstTy n)
             else
                 pure (TyVar n)
 
@@ -195,7 +197,7 @@ desugarPoly (ASTPolyExplicit is t) = do
     pure (Forall (S.fromList n) t')
 
 bindData :: [ASTData] -> Renamer a -> Renamer ([CoreADT],a)
-bindData d f = fmap snd . bindExport (fmap astDataType d ++ concatMap astDataConsNames d) $ do
+bindData d f = fmap snd . bindMany (fmap astDataType d ++ concatMap astDataConsNames d) $ do
     d' <- forM d $ \d -> do
         n <- lookupIdent (astDataType d)
         cs <- mapM (\(i,t) -> liftM2 (,) (lookupIdent i) (desugarPoly t)) (astDataCons d)
@@ -241,7 +243,7 @@ desugarASTTL tl =
         exportTypes = filter (flip elem typeNames) exports
         toBind = filter (not . flip elem externNames) (fmap fst decl)
     in do
-        (data',(func',extern',exports',entry')) <- bindData dat . fmap snd . bindExport exportFuncs . fmap snd . bindExact externNames . fmap snd . bindMany toBind $ do
+        (data',(func',extern',exports',entry')) <- bindData dat . fmap snd . bindExact externNames . fmap snd . bindMany toBind $ do
             let (indecl,outdecl) = partition (not . flip elem externNames . fst) decl
             indecl' <- mapM (\(i,t) -> liftM2 (,) (lookupIdent i) (desugarPoly t)) indecl
             outdecl' <- mapM (\(i,t) -> liftM2 (,) (lookupIdent i) (desugarPoly t)) outdecl

@@ -1,0 +1,80 @@
+data CPtr
+data ref a
+
+data Unit = Top
+
+ccall<<<
+Ptr ptr_alloc(int n) {
+    return malloc(sizeof(Ptr)*n);
+}
+
+Ptr ptr_offset(Ptr* a, int n) {
+    return a + n*sizeof(Ptr);
+}
+
+Ptr ptr_ref(Ptr a) {
+    return &a;
+}
+
+Ptr ptr_deref(Ptr* a) {
+    return *a;
+}
+
+int ptr_assign(Ptr* a,Ptr v) {
+    *a = v;
+    return 0;
+}
+
+Ptr* ptr_cast(Ptr* a) {
+    return a;
+}
+
+Ptr ref_getref(Ptr* a) {
+    return *a;
+}
+
+int ref_putref(Ptr* a, Ptr v) {
+    *a = v;
+    return 0;
+}
+>>>
+
+extern 1 ptr_alloc
+dec ptr_alloc :: Int -> CPtr
+
+extern 2 ptr_offset
+dec ptr_offset :: CPtr -> Int -> CPtr
+
+extern 1 ptr_ref
+dec ptr_ref :: a -> CPtr
+
+extern 1 ptr_deref
+dec ptr_deref :: CPtr -> a
+
+extern 2 ptr_assign
+dec ptr_assign :: CPtr -> a -> Unit
+
+extern 1 ptr_cast
+dec ptr_cast :: CPtr -> ref 'a
+
+extern 1 ref_getref
+dec ref_getref :: ref a -> a
+
+extern 2 ref_putref
+dec ref_putref :: ref a -> a -> Unit
+
+data MVec a = MVector_internal CPtr
+
+dec newMVec :: Int -> MVec 'a
+def newMVec len =
+    let val ptr = ptr_alloc prim<add len 1>
+    in do ptr_assign ptr len
+    in MVector_internal ptr
+
+dec length :: MVec a -> Int
+def length vec = case vec of
+    | MVector_internal ptr -> ptr_deref ptr
+
+dec unsafe_index :: MVec a -> Int -> a
+def unsafe_index vec idx = case vec of
+    | MVector_internal ptr -> ptr_deref (ptr_offset ptr prim<add idx 1>)
