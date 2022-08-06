@@ -1,7 +1,7 @@
 {-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LAnguage TypeFamilies #-}
-module Datatypes.AST where
+module Parser.AST where
 
 import Datatypes.Prim
 import Data.Functor.Foldable

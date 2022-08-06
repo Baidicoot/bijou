@@ -1,9 +1,8 @@
-module Parser (parseTL) where
+module Parser.Parser (parseTL) where
 
-import Datatypes.AST
-import Datatypes.Prim
-import Datatypes.Name
-import Datatypes.Build
+import Parser.AST
+import Univ.Name
+import Parser.Namespace
 
 import Text.Parsec
 import qualified Text.Parsec.Token as Token

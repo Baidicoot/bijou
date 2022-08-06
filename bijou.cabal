@@ -26,24 +26,19 @@ executable bijou
 
     -- Modules included in this executable, other than Main.
     other-modules:
-        Datatypes.ANF,
-        Datatypes.AST,
-        Datatypes.Build,
-        Datatypes.Closure,
-        Datatypes.Core,
-        Datatypes.Lifted,
-        Datatypes.Name,
-        Datatypes.Pattern,
-        Datatypes.Prim,
-        Datatypes.Type,
-        ANFify,
-        Backend,
-        Build,
-        ClosureConv,
-        Desugar,
-        Parser,
-        PartialApp,
-        Typecheck
+        Univ.Name,
+        
+        Parser.Parser,
+        Parser.AST,
+        Parser.Desugar,
+        Parser.Namespace,
+
+        Frontend.Raw,
+        Frontend.Core,
+        Frontend.Elab,
+        Frontend.Erase,
+        Frontend.Module,
+        Frontend.Prim
 
     -- LANGUAGE extensions used by modules in this package.
     -- other-extensions:

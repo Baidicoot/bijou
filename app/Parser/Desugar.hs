@@ -1,12 +1,10 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE LambdaCase #-}
-module Desugar (desugarMod) where
+module Parser.Desugar (desugarMod) where
 
-import Datatypes.AST
-import Datatypes.Core
-import Datatypes.Name
-import Datatypes.Pattern
-import Datatypes.Type
+import Parser.AST
+import Frontend.Raw
+import Univ.Name
 
 import Data.Functor.Foldable
 import Data.Bifunctor

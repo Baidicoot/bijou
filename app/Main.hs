@@ -3,8 +3,8 @@ module Main where
 
 import System.Environment
 import Control.Monad
-import Build
-
+--import Build
+{-
 wordsWhen :: (Char -> Bool) -> String -> [String]
 wordsWhen p s = case dropWhile p s of
     "" -> []
@@ -18,3 +18,7 @@ main = do
     let ps = fmap (wordsWhen (=='.')) fs
     ms <- foldM (\ms p -> fmap ((:ms) . (,) p) (buildModule root build ms p)) [] ps
     pure ()
+-}
+
+main :: IO ()
+main = pure ()
