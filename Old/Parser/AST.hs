@@ -3,11 +3,27 @@
 {-# LAnguage TypeFamilies #-}
 module Parser.AST where
 
-import Datatypes.Prim
 import Data.Functor.Foldable
 import Data.Functor.Foldable.TH
 
 import Data.Bifunctor
+
+data PrimTy
+    = IntTy
+    | StrTy
+    deriving(Eq,Show)
+
+data Lit
+    = IntLit Int
+    | StrLit String
+    deriving(Eq,Show)
+
+data Primop
+    = Add
+    | Sub
+    | Mul
+    | Div
+    deriving(Eq,Show)
 
 data Ident
     = Qualified String String
