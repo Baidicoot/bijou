@@ -14,6 +14,11 @@ data Mult
 
 data Usage = Usage {erased :: Mult, runtime :: Mult} deriving(Eq,Show)
 
+data PrimTy
+    = Int
+    | Str
+    deriving(Eq,Show)
+
 data PrimLit
     = IntLit Int
     | StrLit String

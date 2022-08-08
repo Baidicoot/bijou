@@ -19,18 +19,20 @@ data CorePattern
     | BindVar Name Ty
     deriving(Eq,Show)
 
+-- usage annotations on binding sites only?
 data Core
     = Abs Name Icit Ty Core
     | App Icit Core Core
     | Prod Name Icit Ty Core
     | Cast Core Ty
-    | Lit PrimLit
     | Var Name
     | Cons Name
     | Meta MetaName
     | Let Name Ty Core Core
     | LetRec [(Name,Ty,Core)] Core
     | Match [(CorePattern,Core)]
+    | PrimTy PrimTy
+    | PrimVal PrimLit
     | Primop Primop [Core]
     deriving(Eq,Show)
 
@@ -41,13 +43,18 @@ type Cls = (M.Map Name Val,R.Raw)
 
 type Spine v = [(Icit,v)]
 
+type VTy = (Usage,Val)
+
 data Val
     = VRigid Name (Spine Val)
+    | VTop Name (Spine Val) Val
     | VFlex MetaName (Spine Val)
     | VCons Name (Spine Val)
-    | VPrimop Primop (Spine Val)
-    | VLit PrimLit
     | VType
     | VAbs Name Icit Cls
-    | VProd Name Icit Val Cls
+    | VAttr Val Usage
+    | VProd Name Icit VTy Cls
+    | VPrimTy PrimTy
+    | VPrimLit PrimLit
+    | VPrimop Primop [Val]
     deriving(Show)
