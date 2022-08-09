@@ -66,9 +66,10 @@ addRec n v ctx = ctx {recDefs = M.insert n v (recDefs ctx)}
 addRecs :: [(Name,Val s)] -> EvalCtx s -> EvalCtx s
 addRecs ns ctx = ctx {recDefs = M.union (M.fromList ns) (recDefs ctx)}
 
-type Elab s = ExceptT (TypeError s) (StateT (Int,MetaState s) (ST s))
+type ElabNoExcept s = StateT (Int,MetaState s) (ST s)
+type Elab s = ExceptT (TypeError s) (ElabNoExcept s)
 
-newtype Cls s = Cls {appCls :: Val s -> Elab s (Val s)}
+newtype Cls s = Cls {appCls :: Val s -> ElabNoExcept s (Val s)}
 
 instance Show (Cls s) where
     show _ = "(\\x -> ...)"

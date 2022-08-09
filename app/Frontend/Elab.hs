@@ -16,24 +16,23 @@ import Univ.Name
 import Control.Monad.State.Lazy
 import Control.Monad.Except
 import Control.Monad.ST.Lazy
-import Data.Bifunctor
 
 import qualified Data.Vector.Mutable as V
 import qualified Data.Map as M
 
-fresh :: Elab s MetaName
+fresh :: ElabNoExcept s MetaName
 fresh = do
     (n,m) <- get
     put (n+1,m)
     pure (MetaName n)
 
-freshVar :: Elab s Name
+freshVar :: ElabNoExcept s Name
 freshVar = do
     (n,m) <- get
     put (n+1,m)
     pure (Gen n)
 
-ensureSize :: Int -> Elab s (MetaState s)
+ensureSize :: Int -> ElabNoExcept s (MetaState s)
 ensureSize s = do
     (n,m) <- get
     if s > V.length m then do
@@ -43,17 +42,17 @@ ensureSize s = do
         pure m'
     else pure m
 
-solveMeta :: MetaName -> (Val s) -> Elab s ()
+solveMeta :: MetaName -> (Val s) -> ElabNoExcept s ()
 solveMeta (MetaName n) v = do
     s <- ensureSize n
     V.write s n (Just v)
 
-lookupMeta :: MetaName -> Elab s (Maybe (Val s))
+lookupMeta :: MetaName -> ElabNoExcept s (Maybe (Val s))
 lookupMeta (MetaName n) = do
     s <- ensureSize n
     V.read s n
 
-force :: (Val s) -> Elab s (Val s)
+force :: (Val s) -> ElabNoExcept s (Val s)
 force (VFlex m vs) = do
     v <- lookupMeta m
     case v of
@@ -61,25 +60,25 @@ force (VFlex m vs) = do
         Just v -> force =<< appMany v vs
 force x = pure x
 
-simpl :: (Val s) -> Elab s (Val s)
+simpl :: (Val s) -> ElabNoExcept s (Val s)
 simpl = go <=< force
     where
         go (VTop _ _ v) = go =<< force v
         go x = pure x
 
-appMany :: (Val s) -> Spine (Val s) -> Elab s (Val s)
+appMany :: (Val s) -> Spine (Val s) -> ElabNoExcept s (Val s)
 appMany v ((i,x):xs) = flip appMany xs =<< appVal i v x
 appMany v [] = pure v
 
-appVal :: Icit -> Val s -> Val s -> Elab s (Val s)
+appVal :: Icit -> Val s -> Val s -> ElabNoExcept s (Val s)
 appVal i (VFlex m vs) v = pure (VFlex m (vs++[(i,v)]))
 appVal i (VRigid n vs) v = pure (VRigid n (vs++[(i,v)]))
 appVal i (VCons n vs) v = pure (VCons n (vs++[(i,v)]))
 appVal _ (VAbs _ _ cls) v = appCls cls v
 appVal i (VTop n vs f) v = fmap (VTop n (vs++[(i,v)])) (appVal i f v)
-appVal _ f x = throwError (NonFunctionApp f x)
+appVal _ f x = error "unreachable"
 
-evalType :: EvalCtx s -> R.Raw -> Elab s (VTy s)
+evalType :: EvalCtx s -> R.Raw -> ElabNoExcept s (VTy s)
 evalType env r = do
     v <- eval env r
     case v of
@@ -107,7 +106,7 @@ instance LiftPrim Int where
 instance LiftPrim String where
     liftPrim s = StrLit s
 
-evalPrim :: Primop -> [(Val s)] -> Elab s (Val s)
+evalPrim :: Primop -> [(Val s)] -> ElabNoExcept s (Val s)
 evalPrim p = fmap (go p) . mapM simpl
     where
         go Mul [VPrimLit x, VPrimLit y] =
@@ -157,8 +156,8 @@ unfoldDefs _ x = x
 substVal :: Name -> Val s -> Val s -> Val s
 substVal n v x = case x of
 
--- maybe this should produce 'ElabNoExcept s (Val s)' o.e.
-eval :: EvalCtx s -> R.Raw -> Elab s (Val s)
+-- probably this should produce 'ElabNoExcept s (Val s)' o.e.
+eval :: EvalCtx s -> R.Raw -> ElabNoExcept s (Val s)
 eval env (R.Prod n i s t) = do
     s' <- evalType env s
     pure (VProd n i s' (Cls (\v -> eval (addVar n v env) t)))
@@ -192,10 +191,10 @@ eval env (R.Match _ _) = error "unimplemented"
 -- given a spine of free variables that can appear in the rhs, construct an inverse substitution
 invert :: Spine (Val s) -> Elab s [(Name,(Icit,Name))]
 invert ((i,x):xs) = do
-    v <- force x
+    v <- lift (force x)
     case v of
         VRigid n [] -> do
-            f <- freshVar
+            f <- lift freshVar
             fmap ((n,(i,f)):) (invert xs)
         v -> throwError (NonVarSpine v)
 invert [] = pure []
@@ -205,7 +204,7 @@ substInv :: MetaName -> [(Name,(Icit,Name))] -> Val s -> Elab s (Val s)
 substInv m s = go
     where
         go :: Val s -> Elab s (Val s)
-        go = goF <=< force
+        go = goF <=< lift . force
 
         goF :: Val s -> Elab s (Val s)
         goF (VFlex m' _) | m == m' = throwError (Occurs m)
@@ -217,11 +216,11 @@ substInv m s = go
         goF (VCons n sp) = goSp (VCons n []) sp
         goF (VAbs n i c) = do
             -- I don't think we need to do renaming here?
-            b <- go =<< appCls c (VRigid n [])
+            b <- go =<< lift (appCls c (VRigid n []))
             pure (VAbs n i (Cls (\v -> pure (substVal n v b))))
         goF (VProd n i (u,t) c) = do
             t' <- go t
-            s <- go =<< appCls c (VRigid n [])
+            s <- go =<< lift (appCls c (VRigid n []))
             pure (VProd n i (u,t') (Cls (\v -> pure (substVal n v s))))
         goF (VAttr v u) = fmap (flip VAttr u) (go v)
         goF (VPrimop p vs) = fmap (VPrimop p) (mapM go vs)
