@@ -13,10 +13,9 @@ import Frontend.Core
 import Frontend.Common
 import Univ.Name
 
-import Control.Monad.State
+import Control.Monad.State.Lazy
 import Control.Monad.Except
-import Control.Monad.Reader
-import Control.Monad.ST
+import Control.Monad.ST.Lazy
 import Data.Bifunctor
 
 import qualified Data.Vector.Mutable as V
@@ -155,6 +154,10 @@ unfoldDefs ns (VPrimop p vs) = VPrimop p (fmap (unfoldDefs ns) vs)
 unfoldDefs _ x = x
 -}
 
+substVal :: Name -> Val s -> Val s -> Val s
+substVal n v x = case x of
+
+-- maybe this should produce 'ElabNoExcept s (Val s)' o.e.
 eval :: EvalCtx s -> R.Raw -> Elab s (Val s)
 eval env (R.Prod n i s t) = do
     s' <- evalType env s
@@ -187,16 +190,42 @@ eval env (R.Match _ _) = error "unimplemented"
     --evalMatch env v cs
 
 -- given a spine of free variables that can appear in the rhs, construct an inverse substitution
-invert :: Spine (Val s) -> Elab s [(Name,Icit,Name)]
+invert :: Spine (Val s) -> Elab s [(Name,(Icit,Name))]
 invert ((i,x):xs) = do
     v <- force x
     case v of
         VRigid n [] -> do
             f <- freshVar
-            fmap ((n,i,f):) (invert xs)
+            fmap ((n,(i,f)):) (invert xs)
         v -> throwError (NonVarSpine v)
 invert [] = pure []
 
 -- apply the inverse substitution, and do the occurs check
-substInv :: MetaName -> [(Name,Icit,Name)] -> Val s -> Elab s (Val s)
-substInv m s (VFlex m' sp) = _
+substInv :: MetaName -> [(Name,(Icit,Name))] -> Val s -> Elab s (Val s)
+substInv m s = go
+    where
+        go :: Val s -> Elab s (Val s)
+        go = goF <=< force
+
+        goF :: Val s -> Elab s (Val s)
+        goF (VFlex m' _) | m == m' = throwError (Occurs m)
+        goF (VFlex m' sp) = goSp (VFlex m' []) sp
+        goF (VRigid n sp) | Just (i,n') <- lookup n s = goSp (VRigid n' []) sp
+        goF v@(VRigid _ _) = throwError (CantInvert v)
+        -- not sure if evaluating here can be bypassed
+        goF (VTop _ _ v) = go v
+        goF (VCons n sp) = goSp (VCons n []) sp
+        goF (VAbs n i c) = do
+            -- I don't think we need to do renaming here?
+            b <- go =<< appCls c (VRigid n [])
+            pure (VAbs n i (Cls (\v -> pure (substVal n v b))))
+        goF (VProd n i (u,t) c) = do
+            t' <- go t
+            s <- go =<< appCls c (VRigid n [])
+            pure (VProd n i (u,t') (Cls (\v -> pure (substVal n v s))))
+        goF (VAttr v u) = fmap (flip VAttr u) (go v)
+        goF (VPrimop p vs) = fmap (VPrimop p) (mapM go vs)
+        goF x = pure x
+
+        goSp :: Val s -> Spine (Val s) -> Elab s (Val s)
+        goSp = _

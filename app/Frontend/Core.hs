@@ -6,10 +6,9 @@ import qualified Frontend.Raw as R
 import Frontend.Common
 import Univ.Name
 
-import Control.Monad.State
+import Control.Monad.State.Lazy
 import Control.Monad.Except
-import Control.Monad.Reader
-import Control.Monad.ST
+import Control.Monad.ST.Lazy
 
 import qualified Data.Vector.Mutable as V
 import qualified Data.Map as M
@@ -49,6 +48,8 @@ type MetaState s = V.MVector s (Maybe (Val s))
 data TypeError s
     = NonFunctionApp (Val s) (Val s)
     | NonVarSpine (Val s)
+    | CantInvert (Val s)
+    | Occurs MetaName
 
 data EvalCtx s
     = EvalCtx
