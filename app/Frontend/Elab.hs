@@ -227,4 +227,7 @@ substInv m s = go
         goF x = pure x
 
         goSp :: Val s -> Spine (Val s) -> Elab s (Val s)
-        goSp = _
+        goSp f ((i,a):sp) = do
+            a' <- go a
+            flip goSp sp =<< lift (appVal i f a')
+        goSp f [] = pure f
