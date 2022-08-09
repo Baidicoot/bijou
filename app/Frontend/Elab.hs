@@ -17,29 +17,22 @@ import Control.Monad.State
 import Control.Monad.Except
 import Control.Monad.Reader
 import Control.Monad.ST
+import Data.Bifunctor
 
 import qualified Data.Vector.Mutable as V
 import qualified Data.Map as M
-
-type MetaState s = V.MVector s (Maybe Val)
-
-data TypeError = NonFunctionApp Val Val
-
-type EvalCtx = M.Map Name Val
-
-type Elab s = ReaderT EvalCtx (ExceptT TypeError (StateT (Int,MetaState s) (ST s)))
-
-withDef :: Name -> Val -> Elab s a -> Elab s a
-withDef n v = local (M.insert n v)
-
-withDefs :: [(Name,Val)] -> Elab s a -> Elab s a
-withDefs = local . M.union . M.fromList
 
 fresh :: Elab s MetaName
 fresh = do
     (n,m) <- get
     put (n+1,m)
     pure (MetaName n)
+
+freshVar :: Elab s Name
+freshVar = do
+    (n,m) <- get
+    put (n+1,m)
+    pure (Gen n)
 
 ensureSize :: Int -> Elab s (MetaState s)
 ensureSize s = do
@@ -51,17 +44,17 @@ ensureSize s = do
         pure m'
     else pure m
 
-solveMeta :: MetaName -> Val -> Elab s ()
+solveMeta :: MetaName -> (Val s) -> Elab s ()
 solveMeta (MetaName n) v = do
     s <- ensureSize n
     V.write s n (Just v)
 
-lookupMeta :: MetaName -> Elab s (Maybe Val)
+lookupMeta :: MetaName -> Elab s (Maybe (Val s))
 lookupMeta (MetaName n) = do
     s <- ensureSize n
     V.read s n
 
-force :: Val -> Elab s Val
+force :: (Val s) -> Elab s (Val s)
 force (VFlex m vs) = do
     v <- lookupMeta m
     case v of
@@ -69,28 +62,25 @@ force (VFlex m vs) = do
         Just v -> force =<< appMany v vs
 force x = pure x
 
-simpl :: Val -> Elab s Val
+simpl :: (Val s) -> Elab s (Val s)
 simpl = go <=< force
     where
         go (VTop _ _ v) = go =<< force v
         go x = pure x
 
-appMany :: Val -> Spine Val -> Elab s Val
+appMany :: (Val s) -> Spine (Val s) -> Elab s (Val s)
 appMany v ((i,x):xs) = flip appMany xs =<< appVal i v x
 appMany v [] = pure v
 
-appVal :: Icit -> Val -> Val -> Elab s Val
+appVal :: Icit -> Val s -> Val s -> Elab s (Val s)
 appVal i (VFlex m vs) v = pure (VFlex m (vs++[(i,v)]))
 appVal i (VRigid n vs) v = pure (VRigid n (vs++[(i,v)]))
 appVal i (VCons n vs) v = pure (VCons n (vs++[(i,v)]))
-appVal _ (VAbs n _ cls) v = appCls n v cls
+appVal _ (VAbs _ _ cls) v = appCls cls v
 appVal i (VTop n vs f) v = fmap (VTop n (vs++[(i,v)])) (appVal i f v)
 appVal _ f x = throwError (NonFunctionApp f x)
 
-appCls :: Name -> Val -> Cls -> Elab s Val
-appCls n v (env,x) = eval (M.insert n v env) x
-
-evalType :: M.Map Name Val -> R.Raw -> Elab s VTy
+evalType :: EvalCtx s -> R.Raw -> Elab s (VTy s)
 evalType env r = do
     v <- eval env r
     case v of
@@ -118,7 +108,7 @@ instance LiftPrim Int where
 instance LiftPrim String where
     liftPrim s = StrLit s
 
-evalPrim :: Primop -> [Val] -> Elab s Val
+evalPrim :: Primop -> [(Val s)] -> Elab s (Val s)
 evalPrim p = fmap (go p) . mapM simpl
     where
         go Mul [VPrimLit x, VPrimLit y] =
@@ -132,7 +122,7 @@ evalPrim p = fmap (go p) . mapM simpl
         go op xs = VPrimop op xs
 
 {-
-bindPat :: CorePattern -> Val -> Elab s (Maybe [(Name,Val)])
+bindPat :: CorePattern -> (Val s) -> Elab s (Maybe [(Name,(Val s))])
 bindPat p v = go p =<< force v
     where
         go (BindVar n _) v = pure (Just [(n,v)])
@@ -140,41 +130,73 @@ bindPat p v = go p =<< force v
             xs <- fmap concat . sequence <$> zipWithM (\x y -> bindPat (snd x) (snd y)) ps sp
             _
 
-evalMatch :: M.Map Name Val -> Val -> [(CorePattern,R.Raw)] -> Elab s Val
+evalMatch :: M.Map Name (Val s) -> (Val s) -> [(CorePattern,R.Raw)] -> Elab s (Val s)
 evalMatch = undefined
 -}
 
-eval :: M.Map Name Val -> R.Raw -> Elab s Val
+{-
+unfoldDefsSp :: [Name] -> Spine (Val s) -> Spine (Val s)
+unfoldDefsSp ns = fmap (second (unfoldDefs ns))
+
+unfoldDefsCls :: [Name] -> Cls s -> Cls s
+unfoldDefsCls ns (Cls f) = Cls (fmap (fmap (unfoldDefs ns)) f)
+
+-- fully unfold top-level definitions ns
+unfoldDefs :: [Name] -> (Val s) -> (Val s)
+unfoldDefs ns (VTop n _ v) | elem n ns = unfoldDefs ns v
+unfoldDefs ns (VTop n sp v) = VTop n (unfoldDefsSp ns sp) (unfoldDefs ns v)
+unfoldDefs ns (VFlex m sp) = VFlex m (unfoldDefsSp ns sp)
+unfoldDefs ns (VRigid n sp) = VRigid n (unfoldDefsSp ns sp)
+unfoldDefs ns (VCons n sp) = VCons n (unfoldDefsSp ns sp)
+unfoldDefs ns (VAbs n i cls) = VAbs n i (unfoldDefsCls ns cls)
+unfoldDefs ns (VAttr v u) = VAttr (unfoldDefs ns v) u
+unfoldDefs ns (VProd n i (u,t) cls) = VProd n i (u,unfoldDefs ns t) (unfoldDefsCls ns cls)
+unfoldDefs ns (VPrimop p vs) = VPrimop p (fmap (unfoldDefs ns) vs)
+unfoldDefs _ x = x
+-}
+
+eval :: EvalCtx s -> R.Raw -> Elab s (Val s)
 eval env (R.Prod n i s t) = do
     s' <- evalType env s
-    pure (VProd n i s' (env,t))
-eval env (R.Abs n i b) = pure (VAbs n i (env,b))
+    pure (VProd n i s' (Cls (\v -> eval (addVar n v env) t)))
+eval env (R.Abs n i b) = pure (VAbs n i (Cls (\v -> eval (addVar n v env) b)))
 eval env (R.App i f x) = do
     f' <- eval env f
     x' <- eval env x
     appVal i f' x'
 eval env (R.Cons n) = pure (VCons n [])
 eval env (R.Lit l) = pure (VPrimLit l)
-eval env (R.Var n) | Just v <- M.lookup n env = pure v
-eval env (R.Var n) = do
-    d <- ask
-    case M.lookup n d of
-        Just v -> pure (VTop n [] v)
-        Nothing -> pure (VRigid n [])
+eval env (R.Var n) | Just v <- M.lookup n (varDefs env) = pure v
+eval env (R.Var n) | Just v <- M.lookup n (recDefs env) = pure (VTop n [] v)
+eval env (R.Var n) = error "unreachable"
 eval env R.Hole = fmap (flip VFlex []) fresh
 eval env R.Type = pure VType
 eval env (R.Attr r u) = fmap (flip VAttr u) (eval env r)
 eval env (R.Ann r _) = eval env r
 eval env (R.Let n e b) = do
     v <- eval env e
-    eval (M.insert n v env) b
+    eval (addVar n v env) b
 eval env (R.LetRec df r) = do
-    rec defs <- withDefs defs . forM df $ \(n,_,v) -> do
-            fmap ((,) n) (eval env v)
-    withDefs defs (eval env r)
+    rec defs <- forM df $ \(n,_,v) -> do
+            fmap ((,) n) (eval (addRecs defs env) v)
+    eval (addRecs defs env) r
 eval env (R.Primop p r) = evalPrim p =<< mapM (eval env) r
 eval env (R.Match _ _) = error "unimplemented"
 --eval env (R.Match d cs) = do
     --v <- eval env d
     --evalMatch env v cs
 
+-- given a spine of free variables that can appear in the rhs, construct an inverse substitution
+invert :: Spine (Val s) -> Elab s [(Name,Icit,Name)]
+invert ((i,x):xs) = do
+    v <- force x
+    case v of
+        VRigid n [] -> do
+            f <- freshVar
+            fmap ((n,i,f):) (invert xs)
+        v -> throwError (NonVarSpine v)
+invert [] = pure []
+
+-- apply the inverse substitution, and do the occurs check
+substInv :: MetaName -> [(Name,Icit,Name)] -> Val s -> Elab s (Val s)
+substInv m s (VFlex m' sp) = _
