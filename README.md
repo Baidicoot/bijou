@@ -1,2 +1,2 @@
 # bijou
-Another compiler for a functional programming language, this time hopefully using LLVM in the backend.
+Another compiler for a functional programming language, compiling (with continuations) to C.
